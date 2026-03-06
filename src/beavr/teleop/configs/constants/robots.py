@@ -8,6 +8,7 @@ import numpy as np
 
 ROBOT_NAME_LEAP = "leap"
 ROBOT_NAME_XARM7 = "xarm7"
+ROBOT_NAME_OPENARM = "openarm"
 
 # -----------------------------------------------------------------------------
 # VR detector constants
@@ -93,6 +94,27 @@ ROBOT_HOME_JS = [
 ]
 
 # -----------------------------------------------------------------------------
+# OpenArm constants (ROS2-based 7-DOF arm)
+# -----------------------------------------------------------------------------
+OPENARM_LEFT_JOINT_NAMES = [
+    "openarm_left_joint1",
+    "openarm_left_joint2",
+    "openarm_left_joint3",
+    "openarm_left_joint4",
+    "openarm_left_joint5",
+    "openarm_left_joint6",
+    "openarm_left_joint7",
+]
+OPENARM_HOME_JS = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+OPENARM_TRAJECTORY_DURATION_SEC = 2
+OPENARM_NUM_JOINTS = 7
+
+# MoveIt IK solver configuration
+OPENARM_IK_GROUP_NAME = "left_arm"
+OPENARM_IK_FRAME_ID = "openarm_body_link0"
+OPENARM_IK_LINK_NAME = "openarm_left_hand_tcp"
+
+# -----------------------------------------------------------------------------
 # LEAP hand solver scaling factors (used by LeapHandIKSolver)
 # -----------------------------------------------------------------------------
 LEAP_FINGER_SCALE_FACTOR = 1.8  # default scaling for non-thumb fingertips
@@ -152,6 +174,7 @@ ROBOT_IDENTIFIER_LEFT_XARM7 = "left_xarm7"
 ROBOT_IDENTIFIER_RIGHT_LEAP_HAND = "right_leap"
 ROBOT_IDENTIFIER_LEFT_LEAP_HAND = "left_leap"
 ROBOT_IDENTIFIER_LEAP = "leap"
+ROBOT_IDENTIFIER_LEFT_OPENARM = "left_openarm"
 
 # -----------------------------------------------------------------------------
 # Recorded data types
