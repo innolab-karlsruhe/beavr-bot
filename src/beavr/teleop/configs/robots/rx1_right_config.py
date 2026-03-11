@@ -43,6 +43,9 @@ class TransformHandPositionCoordsCfg:
     keypoint_sub_port: str = "${keypoint_port}"
     keypoint_transform_pub_port: str = "${transformed_position_keypoint_port}"
     moving_average_limit: int = 1
+    enable_logging: bool = True
+    log_dir: str = "data/keypoint_logs"
+    auto_save_interval: int = 100
 
     def build(self):
         return TransformHandPositionCoords(
@@ -50,6 +53,9 @@ class TransformHandPositionCoordsCfg:
             keypoint_sub_port=self.keypoint_sub_port,
             keypoint_transform_pub_port=self.keypoint_transform_pub_port,
             moving_average_limit=self.moving_average_limit,
+            enable_logging=self.enable_logging,
+            log_dir=self.log_dir,
+            auto_save_interval=self.auto_save_interval,
         )
 
 

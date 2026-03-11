@@ -256,6 +256,9 @@ class TransformHandPositionCoordsCfg:
     keypoint_transform_pub_port: int = ports.KEYPOINT_TRANSFORM_PORT
     moving_average_limit: int = 1
     hand_side: str = robots.RIGHT
+    enable_logging: bool = True
+    log_dir: str = "data/keypoint_logs"
+    auto_save_interval: int = 100
 
     def __post_init__(self):
         """Validate configuration."""
@@ -273,7 +276,9 @@ class TransformHandPositionCoordsCfg:
             keypoint_transform_pub_port=self.keypoint_transform_pub_port,
             moving_average_limit=self.moving_average_limit,
             hand_side=self.hand_side,
-            enable_logging=False,  # json stored data of keypoints.
+            enable_logging=self.enable_logging,
+            log_dir=self.log_dir,
+            auto_save_interval=self.auto_save_interval,
         )
 
 
