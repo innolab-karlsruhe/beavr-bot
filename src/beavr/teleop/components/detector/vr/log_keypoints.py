@@ -45,20 +45,19 @@ class KeypointLogger:
 
         self.frame_counter = 0
         self.logged_data = []
+        self.save_counter = 0
 
         self._setup_logging()
         self._register_signal_handlers()
-        # Register cleanup on normal exit
         atexit.register(self.save_data)
 
     def _setup_logging(self):
         """Initialize the logging directory and file path."""
-        # Create log directory if it doesn't exist
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
-        # Generate a unique filename with timestamp and hand side
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.log_file = self.log_dir / f"keypoints_{self.hand_side}_{timestamp}.json"
+        self.log_file_base = self.log_dir / f"keypoints_{self.hand_side}_{timestamp}"
+        self.log_file = str(self.log_file_base) + ".json"
 
         logger.info(f"Logging enabled for {self.hand_side} hand. Data will be saved to: {self.log_file}")
 
@@ -82,22 +81,29 @@ class KeypointLogger:
             return
 
         try:
-            # Convert numpy arrays to lists for JSON serialization
+            self.save_counter += 1
+            if self.save_counter == 1:
+                log_file = str(self.log_file_base) + ".json"
+            else:
+                log_file = str(self.log_file_base) + f"_{self.save_counter}.json"
+
             serializable_data = {
                 "hand_side": self.hand_side,
                 "total_frames": len(self.logged_data),
-                "frames": self.logged_data,
+                "frame_offset": (self.save_counter - 1) * self.auto_save_interval,
+                "frames": self.logged_data.copy(),
                 "metadata": {
                     "save_timestamp": datetime.now().isoformat(),
                     "moving_average_limit": self.moving_average_limit,
+                    "save_counter": self.save_counter,
                 },
             }
 
-            # Save to JSON file
-            with open(self.log_file, "w") as f:
+            with open(log_file, "w") as f:
                 json.dump(serializable_data, f, indent=2)
 
-            logger.info(f"Saved {len(self.logged_data)} frames to {self.log_file}")
+            logger.info(f"Saved {len(self.logged_data)} frames to {log_file}")
+            self.logged_data.clear()
         except Exception as e:
             logger.error(f"Error saving logged data: {e}")
 
@@ -136,5 +142,4 @@ class KeypointLogger:
         # Auto-save at specified intervals
         if self.frame_counter % self.auto_save_interval == 0:
             self.save_data()
-            self.logged_data.clear()
             logger.debug(f"Auto-saved at frame {self.frame_counter}")

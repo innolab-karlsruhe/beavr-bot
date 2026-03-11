@@ -1,7 +1,10 @@
+import json
 import logging
 import time
 from copy import deepcopy as copy
+from datetime import datetime
 from enum import IntEnum
+from pathlib import Path
 
 import numpy as np
 
@@ -108,6 +111,53 @@ class TransformHandPositionCoords(Component):
                 moving_average_limit=moving_average_limit,
             )
 
+        # Raw keypoint recording for debugging
+        self.raw_keypoint_records = []
+        self.raw_keypoint_log_file = None
+        if enable_logging:
+            raw_log_dir = Path(log_dir)
+            raw_log_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.raw_keypoint_log_file = raw_log_dir / f"raw_keypoints_{hand_side}_{timestamp}.json"
+
+    def _log_raw_keypoints(self, keypoints: np.ndarray, is_relative: bool):
+        """Record raw keypoints from VR device for debugging purposes."""
+        if self.raw_keypoint_log_file is None:
+            return
+
+        record = {
+            "timestamp": time.time(),
+            "shape": list(keypoints.shape),
+            "size": int(keypoints.size),
+            "is_relative": is_relative,
+            "keypoints": keypoints.tolist()
+            if keypoints.size < 1000
+            else f"<large array: {keypoints.size} elements>",
+        }
+        self.raw_keypoint_records.append(record)
+
+        # Auto-save every 100 records
+        if len(self.raw_keypoint_records) % 100 == 0:
+            self._save_raw_keypoints()
+
+    def _save_raw_keypoints(self):
+        """Save raw keypoint records to JSON file."""
+        if self.raw_keypoint_log_file is None or len(self.raw_keypoint_records) == 0:
+            return
+
+        try:
+            data = {
+                "hand_side": self.hand_side,
+                "total_records": len(self.raw_keypoint_records),
+                "records": self.raw_keypoint_records.copy(),
+            }
+            with open(self.raw_keypoint_log_file, "w") as f:
+                json.dump(data, f, indent=2)
+            logger.debug(f"Saved {len(self.raw_keypoint_records)} raw keypoint records")
+            self.raw_keypoint_records.clear()
+        except Exception as e:
+            logger.error(f"Error saving raw keypoints: {e}")
+
     def _get_hand_coords(self):
         """Get hand coordinates from the subscriber.
 
@@ -121,8 +171,21 @@ class TransformHandPositionCoords(Component):
         # Extract keypoints from InputFrame object
         keypoints = np.asanyarray(input_frame.keypoints)
 
+        # Record raw keypoints from VR device for debugging
+        logger.debug(f"Raw keypoints shape: {keypoints.shape}, data: {keypoints}")
+        self._log_raw_keypoints(keypoints, input_frame.is_relative)
+
         # Determine data type from is_relative field
         data_type = self.relative_mode if input_frame.is_relative else self.absolute_mode
+
+        # return data_type, keypoints.reshape(robots.OCULUS_NUM_KEYPOINTS, 3)
+        expected_size = robots.OCULUS_NUM_KEYPOINTS * 3
+        if keypoints.size != expected_size:
+            logger.error(
+                f"Invalid keypoints size: got {keypoints.size}, expected {expected_size}. "
+                f"Raw data: {keypoints}"
+            )
+            return None, None
 
         return data_type, keypoints.reshape(robots.OCULUS_NUM_KEYPOINTS, 3)
 
@@ -290,6 +353,10 @@ class TransformHandPositionCoords(Component):
         if self.keypoint_logger is not None:
             logger.info("Cleanup called. Saving final logged data...")
             self.keypoint_logger.save_data()
+
+        # Save raw keypoint records
+        if len(self.raw_keypoint_records) > 0:
+            self._save_raw_keypoints()
 
         self.keypoint_subscriber.stop()
         cleanup_zmq_resources()
