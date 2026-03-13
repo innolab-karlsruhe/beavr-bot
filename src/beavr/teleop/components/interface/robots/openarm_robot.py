@@ -35,12 +35,17 @@ class OpenArmRobot(RobotWrapper):
         state_publish_port: int,
         **kwargs,
     ):
+        logger.info(
+            f"Initializing OpenArmRobot with host={host}, endeff_publish_port={endeff_publish_port}, state_publish_port={state_publish_port}"
+        )
         if not endeff_publish_port:
             raise ValueError("OpenArmRobot requires an 'endeff_publish_port'")
         if not state_publish_port:
             raise ValueError("OpenArmRobot requires a 'state_publish_port'")
 
+        logger.info("Creating DexArmController (OpenArmController)...")
         self._controller = DexArmControl()
+        logger.info("DexArmController created successfully")
 
         self._data_frequency = robots.VR_FREQ
 
@@ -249,12 +254,17 @@ class OpenArmRobot(RobotWrapper):
                 if self.check_reset():
                     self.send_robot_pose()
 
-                if self.get_teleop_state() == robots.ARM_TELEOP_STOP:
+                teleop_state = self.get_teleop_state()
+                if teleop_state == robots.ARM_TELEOP_STOP:
+                    logger.debug(f"Teleop state is STOP, skipping movement")
                     continue
 
                 msg = self._cartesian_coords_subscriber.recv_keypoints()
                 cmd = msg
                 if cmd is not None:
+                    logger.debug(
+                        f"Received cartesian command: pos={cmd.position_m}, orient={cmd.orientation_xyzw}"
+                    )
                     self._latest_commanded_cartesian_position = np.concatenate(
                         [
                             np.asarray(cmd.position_m, dtype=np.float32),
@@ -264,7 +274,10 @@ class OpenArmRobot(RobotWrapper):
                     self._latest_commanded_cartesian_timestamp = cmd.timestamp_s
 
                 if self._latest_commanded_cartesian_position is not None:
+                    logger.debug(f"Moving to commanded cartesian position")
                     self.move_coords(self._latest_commanded_cartesian_position)
+                else:
+                    logger.debug("No commanded cartesian position available")
 
                 self.publish_current_state()
 

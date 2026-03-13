@@ -11,7 +11,7 @@ authors = [
 ]
 readme = "README.md"
 license = { text = "Apache-2.0" }
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.10,<3.11"
 keywords = ["robotics", "deep learning", "pytorch", "teleoperation", "vr"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -81,6 +81,7 @@ dependencies = [
     "xarm-python-sdk",
     "dynamixel-sdk",
     "flatbuffers>=25.9.23,<26.0.0",
+    "empy",
 ]
 
 [project.optional-dependencies]

@@ -130,9 +130,7 @@ class TransformHandPositionCoords(Component):
             "shape": list(keypoints.shape),
             "size": int(keypoints.size),
             "is_relative": is_relative,
-            "keypoints": keypoints.tolist()
-            if keypoints.size < 1000
-            else f"<large array: {keypoints.size} elements>",
+            "keypoints": keypoints.tolist() if keypoints.size < 1000 else f"<large array: {keypoints.size} elements>",
         }
         self.raw_keypoint_records.append(record)
 
@@ -153,7 +151,7 @@ class TransformHandPositionCoords(Component):
             }
             with open(self.raw_keypoint_log_file, "w") as f:
                 json.dump(data, f, indent=2)
-            logger.debug(f"Saved {len(self.raw_keypoint_records)} raw keypoint records")
+            # logger.debug(f"Saved {len(self.raw_keypoint_records)} raw keypoint records")
             self.raw_keypoint_records.clear()
         except Exception as e:
             logger.error(f"Error saving raw keypoints: {e}")
@@ -172,7 +170,7 @@ class TransformHandPositionCoords(Component):
         keypoints = np.asanyarray(input_frame.keypoints)
 
         # Record raw keypoints from VR device for debugging
-        logger.debug(f"Raw keypoints shape: {keypoints.shape}, data: {keypoints}")
+        # logger.debug(f"Raw keypoints shape: {keypoints.shape}, data: {keypoints}")
         self._log_raw_keypoints(keypoints, input_frame.is_relative)
 
         # Determine data type from is_relative field
@@ -182,8 +180,7 @@ class TransformHandPositionCoords(Component):
         expected_size = robots.OCULUS_NUM_KEYPOINTS * 3
         if keypoints.size != expected_size:
             logger.error(
-                f"Invalid keypoints size: got {keypoints.size}, expected {expected_size}. "
-                f"Raw data: {keypoints}"
+                f"Invalid keypoints size: got {keypoints.size}, expected {expected_size}. Raw data: {keypoints}"
             )
             return None, None
 

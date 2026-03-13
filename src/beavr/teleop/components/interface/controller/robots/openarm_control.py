@@ -85,13 +85,27 @@ class OpenArmController:
         self._wait_for_joint_states()
 
     def _initialize_ros2(self):
+        logger.info("Starting ROS2 initialization...")
         if not rclpy.ok():
-            rclpy.init()
+            logger.info("rclpy not initialized, calling rclpy.init()")
+            try:
+                rclpy.init()
+                logger.info("rclpy.init() successful")
+            except Exception as e:
+                logger.error(f"Failed to initialize rclpy: {e}")
+                raise
 
-        self._node = Node("openarm_controller_node")
+        logger.info("Creating ROS2 node: openarm_controller_node")
+        try:
+            self._node = Node("openarm_controller_node")
+        except Exception as e:
+            logger.error(f"Failed to create ROS2 node: {e}")
+            raise
+
         self._executor = MultiThreadedExecutor()
         self._executor.add_node(self._node)
 
+        logger.info("Starting ROS2 executor thread")
         self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
         self._spin_thread.start()
 
@@ -153,7 +167,7 @@ class OpenArmController:
         if not self._ik_client.service_is_ready():
             logger.error("IK service is not ready")
             return None
-
+        logger.info(f"position {position}")
         request = GetPositionIK.Request()
         request.ik_request.group_name = self.ik_group_name
         request.ik_request.pose_stamped.header.frame_id = self.ik_frame_id
@@ -219,7 +233,7 @@ class OpenArmController:
 
         goal_msg.trajectory.points = [point]
 
-        logger.debug(f"Sending trajectory goal: {joint_angles}")
+        logger.info(f"Sending trajectory goal: {joint_angles}")
 
         send_goal_future = self._action_client.send_goal_async(goal_msg)
 
@@ -264,6 +278,7 @@ class OpenArmController:
         orientation = cartesian_pose[3:7]
 
         joint_angles = self.compute_ik(position, orientation)
+        logger.info(f"joint_angles {joint_angles}")
         if joint_angles is None:
             logger.error("Failed to compute IK solution")
             return False
@@ -280,7 +295,7 @@ class OpenArmController:
     def get_arm_pose(self) -> Optional[np.ndarray]:
         if self._current_joint_positions is None:
             return None
-        logger.warning("get_arm_pose() returning joint positions. Forward kinematics not implemented.")
+        # logger.warning("get_arm_pose() returning joint positions. Forward kinematics not implemented.")
         return self._current_joint_positions
 
     def cleanup(self):

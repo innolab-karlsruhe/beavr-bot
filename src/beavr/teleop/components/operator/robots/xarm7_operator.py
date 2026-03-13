@@ -255,15 +255,18 @@ class XArmOperator(Operator):
         """
         # Try to get new data without blocking
         data = self._arm_transformed_keypoint_subscriber.recv_keypoints()
+        logger.debug(f"Received data from subscriber: {data}")
 
         if data is not None:
             # Process new data - expect InputFrame object with frame_vectors
             try:
+                logger.debug(f"Processing InputFrame, frame_vectors: {data.frame_vectors}")
                 if data.frame_vectors is not None:
                     # frame_vectors should be a sequence of 4 tuples (origin + 3 basis vectors)
                     # Convert from Tuple[Tuple[float, float, float], ...] to numpy array (4, 3)
                     frame_data = np.array(data.frame_vectors, dtype=np.float64).reshape(4, 3)
                     self.last_valid_hand_frame = frame_data  # Cache the new valid frame
+                    logger.debug(f"Created frame_data shape: {frame_data.shape}")
                     return frame_data
 
             except Exception as e:
@@ -272,10 +275,11 @@ class XArmOperator(Operator):
 
         # If no new data or processing failed, return the cached frame if it exists
         if self.last_valid_hand_frame is not None:
-            logger.info(f"No new data, returning cached frame: {self.last_valid_hand_frame}")
+            logger.debug(f"No new data, returning cached frame")
             return self.last_valid_hand_frame
 
         # If no new data and no cached frame, return None
+        logger.debug("No new data and no cached frame, returning None")
         return None
 
     def _turn_frame_to_homo_mat(self, frame: np.ndarray) -> np.ndarray:
@@ -545,17 +549,22 @@ class XArmOperator(Operator):
 
         # Decide whether we should publish commands this cycle
         publish_commands = self.arm_teleop_state == robots.ARM_TELEOP_CONT
+        if not publish_commands:
+            logger.debug(f"Teleop state is STOP ({self.arm_teleop_state}), skipping command publication")
 
         # 2. Handle Reset Condition
         if needs_reset:
+            logger.debug(f"Attempting reset for {self.operator_name}")
             moving_hand_frame = self._reset_teleop()
             if moving_hand_frame is None:
                 logger.error(f"ERROR ({self.operator_name}): Reset failed, cannot proceed.")
                 return  # Exit if reset failed
+            logger.debug(f"Reset successful, got hand frame: {moving_hand_frame}")
             # Reset is done, is_first_frame is now False
         else:
             # 3. Get Current Hand Frame (if not resetting)
             moving_hand_frame = self._get_hand_frame()
+            logger.debug(f"Got hand frame: {moving_hand_frame}")
 
         # If no valid hand frame is available (after reset or during normal operation), exit
         if moving_hand_frame is None:
@@ -681,17 +690,25 @@ class XArmOperator(Operator):
         if publish_commands:
             try:
                 # TODO: Remove the literal in the topic arg use a constant.
+                logger.debug(
+                    f"Publishing command to {self._publisher_host}:{self._publisher_port}: pos={cartesian_cmd.position_m[:3]}, orient={cartesian_cmd.orientation_xyzw}"
+                )
                 self._publisher_manager.publish(
                     host=self._publisher_host,
                     port=self._publisher_port,
                     topic="endeff_coords",
                     data=cartesian_cmd,
                 )
+                logger.debug(f"Successfully published command to port {self._publisher_port}")
                 # logger.info(f"Published end-effector command: {command_data}")
             except (ConnectionError, SerializationError) as e:
                 logger.error(f"Failed to publish end-effector command: {e}")
             except Exception as e:
                 logger.error(f"Unexpected error publishing command: {e}")
+        else:
+            logger.debug(
+                f"Skipping command publication: publish_commands={publish_commands}, arm_teleop_state={self.arm_teleop_state}"
+            )
 
         # 12. Logging (Optional)
         if self.logging_enabled and self.pose_logger:
