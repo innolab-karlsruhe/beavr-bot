@@ -312,12 +312,13 @@ class XArm7Robot(RobotWrapper):
                 # Calculate next frame time
                 next_frame_time = current_time + target_interval
 
-                if self.check_home() and not self._is_homed:
+                home_signaled = self.check_home()
+                if home_signaled and not self._is_homed:
                     # Execute the homing motion.
                     self.home()
                     self._is_homed = True
                     self.send_robot_pose()
-                elif not self.check_home() and self._is_homed:
+                elif not home_signaled and self._is_homed:
                     self._is_homed = False
 
                 if self.check_reset():

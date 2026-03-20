@@ -207,7 +207,21 @@ class OpenArmRobot(RobotWrapper):
             return
 
         try:
-            h_matrix = tuple(tuple(float(x) for x in row) for row in pose_homo)
+            # Check if pose_homo is a 4x4 matrix (homo) or joint positions (1D array)
+            if len(pose_homo.shape) == 1:
+                # Forward kinematics not implemented, return identity matrix as placeholder
+                logger.warning(
+                    "[ROBOT] Forward kinematics not implemented for OpenArm, using identity matrix as placeholder"
+                )
+                h_matrix = (
+                    (1.0, 0.0, 0.0, 0.0),
+                    (0.0, 1.0, 0.0, 0.0),
+                    (0.0, 0.0, 1.0, 0.0),
+                    (0.0, 0.0, 0.0, 1.0),
+                )
+            else:
+                # Already a 4x4 homogeneous matrix
+                h_matrix = tuple(tuple(float(x) for x in row) for row in pose_homo)
             self._publisher_manager.publish(
                 host=self._publisher_host,
                 port=self._endeff_publish_port,
@@ -244,11 +258,12 @@ class OpenArmRobot(RobotWrapper):
             if current_time >= next_frame_time:
                 next_frame_time = current_time + target_interval
 
-                if self.check_home() and not self._is_homed:
+                home_signaled = self.check_home()
+                if home_signaled and not self._is_homed:
                     self.home()
                     self._is_homed = True
                     self.send_robot_pose()
-                elif not self.check_home() and self._is_homed:
+                elif not home_signaled and self._is_homed:
                     self._is_homed = False
 
                 if self.check_reset():

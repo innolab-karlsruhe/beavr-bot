@@ -28,7 +28,7 @@ class OpenArmRobotCfg:
     reset_subscribe_port: int = ports.OPENARM_RESET_SUBSCRIBE_PORT
     home_subscribe_port: int = ports.OPENARM_HOME_SUBSCRIBE_PORT
     state_publish_port: int = ports.OPENARM_STATE_PUBLISH_PORT
-    teleoperation_state_port: int = ports.OPENARM_TELEOPERATION_STATE_PORT
+    teleoperation_state_port: int = ports.KEYPOINT_STREAM_PORT
     recorder_config: dict[str, Any] = field(
         default_factory=lambda: {
             "robot_identifier": robots.ROBOT_IDENTIFIER_LEFT_OPENARM,
@@ -82,7 +82,7 @@ class OpenArmOperatorCfg:
     moving_average_limit: int = 3
     arm_resolution_port: int = ports.KEYPOINT_STREAM_PORT
     use_filter: bool = False
-    teleoperation_state_port: int = ports.OPENARM_TELEOPERATION_STATE_PORT
+    teleoperation_state_port: int = ports.KEYPOINT_STREAM_PORT
     logging_config: dict[str, Any] = field(
         default_factory=lambda: {
             "enabled": False,

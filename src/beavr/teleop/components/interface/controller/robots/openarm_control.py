@@ -4,30 +4,29 @@ import time
 from typing import Optional
 
 import numpy as np
-from scipy.spatial.transform import Rotation
-
-logger = logging.getLogger(__name__)
-
 import rclpy
+from builtin_interfaces.msg import Duration
+from control_msgs.action import FollowJointTrajectory
+from moveit_msgs.msg import RobotState
+from moveit_msgs.srv import GetPositionFK, GetPositionIK
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from builtin_interfaces.msg import Duration
-from control_msgs.action import FollowJointTrajectory
-from geometry_msgs.msg import Pose, PoseStamped
-from moveit_msgs.srv import GetPositionIK
+from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from beavr.teleop.configs.constants import robots
 
+logger = logging.getLogger(__name__)
 
 class OpenArmController:
     def __init__(
         self,
         trajectory_action_name: str = "/left_joint_trajectory_controller/follow_joint_trajectory",
         ik_service_name: str = "/compute_ik",
+        fk_service_name: str = "/compute_fk",
         joint_names: Optional[list] = None,
         ik_group_name: str = robots.OPENARM_IK_GROUP_NAME,
         ik_frame_id: str = robots.OPENARM_IK_FRAME_ID,
@@ -59,6 +58,12 @@ class OpenArmController:
         self._ik_client = self._node.create_client(
             GetPositionIK,
             ik_service_name,
+            # callback_group=ReentrantCallbackGroup(),
+        )
+
+        self._fk_client = self._node.create_client(
+            GetPositionFK,
+            fk_service_name,
             callback_group=ReentrantCallbackGroup(),
         )
 
@@ -175,16 +180,25 @@ class OpenArmController:
         request.ik_request.ik_link_name = self.ik_link_name
 
         pose = Pose()
-        pose.position.x = float(position[0])
-        pose.position.y = float(position[1])
-        pose.position.z = float(position[2])
-        pose.orientation.x = float(orientation_quat[0])
-        pose.orientation.y = float(orientation_quat[1])
-        pose.orientation.z = float(orientation_quat[2])
-        pose.orientation.w = float(orientation_quat[3])
+        pose.position.x = float(position[2])
+        pose.position.y = float(position[0])
+        pose.position.z = float(position[1])
+        pose.orientation.x = 0.9999999999983135  # float(orientation_quat[0])
+        pose.orientation.y = 0.0  # float(orientation_quat[1])
+        pose.orientation.z = 0.0  # float(orientation_quat[2])
+        pose.orientation.w = 0.0000018366  # float(orientation_quat[3])
         request.ik_request.pose_stamped.pose = pose
 
         request.ik_request.timeout.sec = 1
+
+        if self._current_joint_positions is not None:
+            robot_state = RobotState()
+            robot_state.joint_state.name = self.joint_names
+            robot_state.joint_state.position = [float(x) for x in self._current_joint_positions]
+            robot_state.joint_state.velocity = [0.0] * self.num_joints
+            request.ik_request.robot_state = robot_state
+        else:
+            logger.warning("No current joint positions available, IK will use default seed")
 
         future = self._ik_client.call_async(request)
 
@@ -209,6 +223,59 @@ class OpenArmController:
                 return None
         except Exception as e:
             logger.error(f"Exception during IK call: {e}")
+            return None
+
+    def compute_fk(self, joint_angles: np.ndarray) -> Optional[np.ndarray]:
+        """Compute the forward kinematics (4x4 homogeneous matrix) for given joint angles"""
+        if not self._fk_client.service_is_ready():
+            logger.error("FK service is not ready")
+            return None
+
+        request = GetPositionFK.Request()
+        request.fk_link_names = [self.ik_link_name]
+        request.header.frame_id = self.ik_frame_id
+        request.header.stamp = self._node.get_clock().now().to_msg()
+
+        request.robot_state = RobotState()
+        request.robot_state.joint_state.name = self.joint_names
+        request.robot_state.joint_state.position = [float(x) for x in joint_angles]
+        request.robot_state.joint_state.velocity = [0.0] * self.num_joints
+
+        future = self._fk_client.call_async(request)
+
+        timeout_sec = 2.0
+        start_time = time.time()
+        while not future.done():
+            if time.time() - start_time > timeout_sec:
+                logger.error("FK service call timed out")
+                return None
+            time.sleep(0.01)
+
+        try:
+            response = future.result()
+            if response.error_code.val == 1:
+                if len(response.pose_stamped) > 0:
+                    pose_stamped = response.pose_stamped[0]
+                    position = pose_stamped.pose.position
+                    orientation = pose_stamped.pose.orientation
+
+                    r = Rotation.from_quat([orientation.x, orientation.y, orientation.z, orientation.w])
+                    rotation_matrix = r.as_matrix()
+
+                    h_matrix = np.eye(4, dtype=np.float32)
+                    h_matrix[:3, :3] = rotation_matrix
+                    h_matrix[:3, 3] = [position.x, position.y, position.z]
+
+                    logger.info(f"compute_fk result - position=[{position.x:.4f}, {position.y:.4f}, {position.z:.4f}]")
+                    return h_matrix
+                else:
+                    logger.error("FK returned no poses")
+                    return None
+            else:
+                logger.error(f"FK failed with error code: {response.error_code.val}")
+                return None
+        except Exception as e:
+            logger.error(f"Exception during FK call: {e}")
             return None
 
     def move_arm_joint(self, joint_angles: np.ndarray, duration: Optional[float] = None) -> bool:
@@ -278,7 +345,10 @@ class OpenArmController:
         orientation = cartesian_pose[3:7]
 
         joint_angles = self.compute_ik(position, orientation)
-        logger.info(f"joint_angles {joint_angles}")
+        logger.info(f"IK result: joint_angles={joint_angles}")
+        if joint_angles is None:
+            logger.error("Failed to compute IK solution")
+            return False
         if joint_angles is None:
             logger.error("Failed to compute IK solution")
             return False
@@ -295,8 +365,8 @@ class OpenArmController:
     def get_arm_pose(self) -> Optional[np.ndarray]:
         if self._current_joint_positions is None:
             return None
-        # logger.warning("get_arm_pose() returning joint positions. Forward kinematics not implemented.")
-        return self._current_joint_positions
+        h_matrix = self.compute_fk(self._current_joint_positions)
+        return h_matrix
 
     def cleanup(self):
         logger.info("Cleaning up OpenArm controller...")
@@ -306,6 +376,8 @@ class OpenArmController:
             self._action_client.destroy()
         if hasattr(self, "_ik_client"):
             self._ik_client.destroy()
+        if hasattr(self, "_fk_client"):
+            self._fk_client.destroy()
         if hasattr(self, "_executor"):
             self._executor.shutdown()
         if hasattr(self, "_node"):

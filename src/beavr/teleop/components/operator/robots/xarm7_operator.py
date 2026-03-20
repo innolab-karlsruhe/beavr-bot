@@ -1,4 +1,5 @@
 import logging
+import math
 import time
 from copy import deepcopy as copy
 from typing import Any, Dict, Optional
@@ -22,9 +23,8 @@ from beavr.teleop.components.detector.detector_types import (
     SessionCommand,
 )
 from beavr.teleop.components.interface.interface_types import CartesianState
-from beavr.teleop.components.operator import CartesianTarget
 from beavr.teleop.components.operator.operator_base import Operator
-from beavr.teleop.components.operator.solvers.filters import CompStateFilter
+from beavr.teleop.components.operator.operator_types import CartesianTarget
 from beavr.teleop.configs.constants import robots
 
 logger = logging.getLogger(__name__)
@@ -241,6 +241,12 @@ class XArmOperator(Operator):
         """Returns whether the operator is controlling a real robot (placeholder)."""
         return self.real
 
+    def _contains_nan(self, arr: np.ndarray) -> bool:
+        """Check if numpy array contains any NaN values."""
+        if arr is None:
+            return True
+        return bool(np.any(np.isnan(arr)))
+
     # ------------------------------
     # Frame / Matrix utilities
     # ------------------------------
@@ -255,12 +261,12 @@ class XArmOperator(Operator):
         """
         # Try to get new data without blocking
         data = self._arm_transformed_keypoint_subscriber.recv_keypoints()
-        logger.debug(f"Received data from subscriber: {data}")
+        if data is not None:
+            logger.debug(f"Received data from subscriber: has nan {math.isnan(data.keypoints[0][0])}")
 
         if data is not None:
             # Process new data - expect InputFrame object with frame_vectors
             try:
-                logger.debug(f"Processing InputFrame, frame_vectors: {data.frame_vectors}")
                 if data.frame_vectors is not None:
                     # frame_vectors should be a sequence of 4 tuples (origin + 3 basis vectors)
                     # Convert from Tuple[Tuple[float, float, float], ...] to numpy array (4, 3)
@@ -301,7 +307,11 @@ class XArmOperator(Operator):
         # The frame stores columns of R, so transpose r_cols to get R
         homo_mat[:3, :3] = r_cols.T
         homo_mat[:3, 3] = t
-        # homo_mat[3, 3] = 1 # Already set by np.eye(4)
+
+        # Check if the rotation matrix is valid before returning
+        r_mat = homo_mat[:3, :3]
+        if self._contains_nan(r_mat):
+            logger.warning(f"Hand frame contains NaN in rotation matrix. Frame:\n{frame}")
 
         return homo_mat
 
@@ -488,7 +498,19 @@ class XArmOperator(Operator):
         try:
             self.hand_init_h = self._turn_frame_to_homo_mat(first_hand_frame)
             self.hand_init_t = copy(self.hand_init_h[:3, 3])  # Store initial hand translation
-            logger.info(f"{self.operator_name} Hand init H:\n{self.hand_init_h}")
+
+            # Validate that the rotation matrix is valid (near-orthonormal)
+            r_mat = self.hand_init_h[:3, :3]
+            # Check if rotation part is valid using SVD
+            r_fixed = self.project_to_rotation_matrix(r_mat)
+            if np.allclose(r_mat, r_fixed, atol=1e-6):
+                logger.info(f"{self.operator_name} Hand init H:\n{self.hand_init_h}")
+            else:
+                logger.warning(
+                    f"WARNING ({self.operator_name}): Initial hand frame rotation matrix was invalid, corrected via SVD"
+                )
+                self.hand_init_h[:3, :3] = r_fixed
+                logger.info(f"{self.operator_name} Hand init H (corrected):\n{self.hand_init_h}")
         except ValueError as e:
             logger.error(f"ERROR ({self.operator_name}): Failed to convert initial hand frame to matrix: {e}")
             self.is_first_frame = True  # Stay in reset state
@@ -676,7 +698,7 @@ class XArmOperator(Operator):
         cartesian_cmd = CartesianTarget(
             timestamp_s=time.time(),
             hand_side=self.hand_side,
-            frame_id="base",
+            frame_id="world",
             position_m=(float(position[0]), float(position[1]), float(position[2])),
             orientation_xyzw=(
                 float(orientation_quat[0]),
