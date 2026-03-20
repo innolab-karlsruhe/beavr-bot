@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from beavr.teleop.common.configs.loader import Laterality, log_laterality_configuration
+from beavr.teleop.components.interface.controller.robots.openarm_gripper_control import OpenArmGripperRobot
 from beavr.teleop.components.interface.robots.openarm_robot import OpenArmRobot
 from beavr.teleop.configs.constants import network, ports, robots
 from beavr.teleop.configs.robots import TeleopRobotConfig
@@ -128,6 +129,28 @@ class OpenArmOperatorCfg:
 
 
 @dataclass
+class OpenArmGripperRobotCfg:
+    host: str = network.HOST_ADDRESS
+    gripper_subscribe_port: int = robots.OPENARM_GRIPPER_SUBSCRIBE_PORT
+    recorder_config: dict[str, Any] = field(
+        default_factory=lambda: {
+            "robot_identifier": robots.ROBOT_IDENTIFIER_OPENARM_GRIPPER,
+            "recorded_data": [],
+        }
+    )
+
+    def __post_init__(self):
+        if not (1 <= self.gripper_subscribe_port <= 65535):
+            raise ValueError(f"Port out of valid range (1-65535): {self.gripper_subscribe_port}")
+
+    def build(self):
+        return OpenArmGripperRobot(
+            host=self.host,
+            gripper_subscribe_port=self.gripper_subscribe_port,
+        )
+
+
+@dataclass
 @TeleopRobotConfig.register_subclass(robots.ROBOT_NAME_OPENARM)
 class OpenArmConfig:
     robot_name: str = robots.ROBOT_NAME_OPENARM
@@ -182,6 +205,16 @@ class OpenArmConfig:
                         robots.RECORDED_DATA_COMMANDED_CARTESIAN_STATE,
                         robots.RECORDED_DATA_JOINT_ANGLES_RAD,
                     ],
+                },
+            )
+        )
+        self.robots.append(
+            OpenArmGripperRobotCfg(
+                host=network.HOST_ADDRESS,
+                gripper_subscribe_port=robots.OPENARM_GRIPPER_SUBSCRIBE_PORT,
+                recorder_config={
+                    "robot_identifier": robots.ROBOT_IDENTIFIER_OPENARM_GRIPPER,
+                    "recorded_data": [],
                 },
             )
         )

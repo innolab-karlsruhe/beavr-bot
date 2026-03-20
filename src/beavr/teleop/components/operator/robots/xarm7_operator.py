@@ -24,7 +24,7 @@ from beavr.teleop.components.detector.detector_types import (
 )
 from beavr.teleop.components.interface.interface_types import CartesianState
 from beavr.teleop.components.operator.operator_base import Operator
-from beavr.teleop.components.operator.operator_types import CartesianTarget
+from beavr.teleop.components.operator.operator_types import CartesianTarget, GripperCommand
 from beavr.teleop.configs.constants import robots
 
 logger = logging.getLogger(__name__)
@@ -137,16 +137,31 @@ class XArmOperator(Operator):
             message_type=CartesianState,
         )
 
+        # Subscribe to transformed hand coordinates for gripper calculation
+        coords_topic = f"{hand_side}_{robots.TRANSFORMED_HAND_COORDS}"
+        self._hand_coords_subscriber = ZMQSubscriber(
+            host=host,
+            port=transformed_keypoints_port,
+            topic=coords_topic,
+            context=self._context,
+            message_type=InputFrame,
+        )
+        self._latest_hand_coords = None
+
         self._subscribers = {
             "endeff_homo": self.endeff_homo_subscriber,
             "teleop_state": self._arm_teleop_state_subscriber,
             "resolution_scale": self._arm_resolution_subscriber,
+            "hand_coords": self._hand_coords_subscriber,
         }
 
         # Using the centralized publisher manager
         self._publisher_manager = ZMQPublisherManager.get_instance(self._context)
         self._publisher_host = host
         self._publisher_port = endeff_publish_port
+        self._gripper_publish_port = robots.OPENARM_GRIPPER_CMD_PORT
+        self._gripper_width = robots.OPENARM_GRIPPER_MIN_WIDTH_M
+        self._first_gripper_publish = True
 
         self._stream_oculus = stream_oculus
         self.stream_configs = stream_configs
@@ -631,6 +646,53 @@ class XArmOperator(Operator):
                 fixed.append(q)
         return np.array(fixed)
 
+    def _extract_gripper_width(self) -> float:
+        """
+        Computes continuous gripper width from hand keypoints.
+        Maps thumb-index distance (0-9cm) to gripper width (0-4.5cm).
+
+        Returns:
+            Float representing gripper width in meters
+        """
+        # Get latest hand coordinates
+        coords_data = self._hand_coords_subscriber.recv_keypoints()
+        if coords_data is None:
+            # No new data, return previous width (initialize to 0 if not set)
+            return getattr(self, "_gripper_width", robots.OPENARM_GRIPPER_MIN_WIDTH_M)
+
+        if coords_data.keypoints is None:
+            return getattr(self, "_gripper_width", robots.OPENARM_GRIPPER_MIN_WIDTH_M)
+
+        # Convert keypoints to numpy array and get thumb and index finger tip positions
+        keypoints = np.array(coords_data.keypoints, dtype=np.float64).reshape(-1, 3)
+        thumb_tip = keypoints[robots.OCULUS_JOINTS["thumb_tip"]]
+        index_tip = keypoints[robots.OCULUS_JOINTS["index_tip"]]
+
+        # Calculate distance between thumb and index fingertips
+        distance = np.linalg.norm(thumb_tip - index_tip)
+        logger.debug(
+            f"[gripper] current index thumb distance: {distance * 1000:.1f}mm"
+        )
+
+        # Clamp distance to valid range [0, 9cm]
+        clamped_distance = min(distance, robots.OPENARM_GRIPPER_THRESHOLD_M)
+
+        # Map distance to gripper width: 0-9cm -> 0-4.5cm
+        # Linear mapping: width = (distance / max_distance) * max_width
+        gripper_width = (clamped_distance / robots.OPENARM_GRIPPER_THRESHOLD_M) * robots.OPENARM_GRIPPER_MAX_WIDTH_M
+
+        # Ensure gripper width is within bounds
+        gripper_width = max(robots.OPENARM_GRIPPER_MIN_WIDTH_M, min(gripper_width, robots.OPENARM_GRIPPER_MAX_WIDTH_M))
+
+        self._gripper_width = gripper_width
+
+        logger.debug(
+            f"[{self.operator_name}] Gripper width: {self._gripper_width * 1000:.1f}mm "
+            f"(distance={clamped_distance * 1000:.1f}mm)"
+        )
+
+        return self._gripper_width
+
     def _apply_retargeted_angles(self):
         """
         Calculates and applies the retargeted end-effector pose based on hand motion.
@@ -808,6 +870,26 @@ class XArmOperator(Operator):
                     data=cartesian_cmd,
                 )
                 # logger.info(f"Published end-effector command: {command_data}")
+
+                # Extract and publish gripper width
+                gripper_width_m = self._extract_gripper_width()
+
+                gripper_cmd = GripperCommand(
+                    timestamp_s=time.time(),
+                    hand_side=self.hand_side,
+                    width_m=gripper_width_m,
+                    speed_mps=robots.OPENARM_GRIPPER_DEFAULT_SPEED_MPS,
+                )
+
+                self._publisher_manager.publish(
+                    host=self._publisher_host,
+                    port=self._gripper_publish_port,
+                    topic="gripper_cmd",
+                    data=gripper_cmd,
+                )
+                logger.debug(
+                    f"[{self.operator_name}] Published gripper command: width={gripper_width_m:.3f}m"
+                )
             except (ConnectionError, SerializationError) as e:
                 logger.error(f"Failed to publish end-effector command: {e}")
             except Exception as e:
@@ -912,7 +994,7 @@ class XArmOperator(Operator):
         # Safely clean up subscribers if they were initialized
         if hasattr(self, "_subscribers") and self._subscribers:
             for subscriber in self._subscribers.values():
-                if subscriber:  # Check if subscriber is not None
+                if subscriber is not None:  # Check if subscriber is not None
                     try:
                         subscriber.stop()
                     except Exception as e:
