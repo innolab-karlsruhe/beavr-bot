@@ -7,6 +7,7 @@ import numpy as np
 import rclpy
 from builtin_interfaces.msg import Duration
 from control_msgs.action import FollowJointTrajectory
+from geometry_msgs.msg import Pose
 from moveit_msgs.msg import RobotState
 from moveit_msgs.srv import GetPositionFK, GetPositionIK
 from rclpy.action import ActionClient
@@ -20,6 +21,7 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from beavr.teleop.configs.constants import robots
 
 logger = logging.getLogger(__name__)
+
 
 class OpenArmController:
     def __init__(
@@ -180,13 +182,13 @@ class OpenArmController:
         request.ik_request.ik_link_name = self.ik_link_name
 
         pose = Pose()
-        pose.position.x = float(position[2])
-        pose.position.y = float(position[0])
-        pose.position.z = float(position[1])
-        pose.orientation.x = 0.9999999999983135  # float(orientation_quat[0])
-        pose.orientation.y = 0.0  # float(orientation_quat[1])
-        pose.orientation.z = 0.0  # float(orientation_quat[2])
-        pose.orientation.w = 0.0000018366  # float(orientation_quat[3])
+        pose.position.x = float(position[0])
+        pose.position.y = float(position[1])
+        pose.position.z = float(position[2])
+        pose.orientation.x = float(orientation_quat[0])
+        pose.orientation.y = float(orientation_quat[1])
+        pose.orientation.z = float(orientation_quat[2])
+        pose.orientation.w = float(orientation_quat[3])
         request.ik_request.pose_stamped.pose = pose
 
         request.ik_request.timeout.sec = 1

@@ -21,6 +21,7 @@ from beavr.teleop.components.operator.operator_types import CartesianTarget
 from beavr.teleop.configs.constants import robots
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class OpenArmRobot(RobotWrapper):
@@ -222,6 +223,11 @@ class OpenArmRobot(RobotWrapper):
             else:
                 # Already a 4x4 homogeneous matrix
                 h_matrix = tuple(tuple(float(x) for x in row) for row in pose_homo)
+
+            logger.info(
+                f"[ROBOT] Publishing robot pose to 'endeff_homo' on port {self._endeff_publish_port}: "
+                f"position={h_matrix[0][3]:.3f}, {h_matrix[1][3]:.3f}, {h_matrix[2][3]:.3f}"
+            )
             self._publisher_manager.publish(
                 host=self._publisher_host,
                 port=self._endeff_publish_port,
@@ -231,6 +237,7 @@ class OpenArmRobot(RobotWrapper):
                     h_matrix=h_matrix,
                 ),
             )
+            logger.info(f"[ROBOT] Successfully published robot pose to 'endeff_homo'")
         except Exception as e:
             logger.error(f"Failed to publish robot pose for {self.name}: {e}")
 
@@ -253,6 +260,7 @@ class OpenArmRobot(RobotWrapper):
         next_frame_time = time.time()
 
         while True:
+            logger.info("[robot] while true")
             current_time = time.time()
 
             if current_time >= next_frame_time:
@@ -278,7 +286,7 @@ class OpenArmRobot(RobotWrapper):
                 cmd = msg
                 if cmd is not None:
                     logger.debug(
-                        f"Received cartesian command: pos={cmd.position_m}, orient={cmd.orientation_xyzw}"
+                        f"[ROBOT] Received cartesian command: pos={cmd.position_m}, orient={cmd.orientation_xyzw}"
                     )
                     self._latest_commanded_cartesian_position = np.concatenate(
                         [
@@ -289,10 +297,12 @@ class OpenArmRobot(RobotWrapper):
                     self._latest_commanded_cartesian_timestamp = cmd.timestamp_s
 
                 if self._latest_commanded_cartesian_position is not None:
-                    logger.debug(f"Moving to commanded cartesian position")
+                    logger.debug(
+                        f"[ROBOT] Moving to commanded cartesian position {self._latest_commanded_cartesian_position}"
+                    )
                     self.move_coords(self._latest_commanded_cartesian_position)
                 else:
-                    logger.debug("No commanded cartesian position available")
+                    logger.debug("[ROBOT] No commanded cartesian position available")
 
                 self.publish_current_state()
 

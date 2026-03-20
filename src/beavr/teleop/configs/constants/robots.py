@@ -106,12 +106,12 @@ OPENARM_LEFT_JOINT_NAMES = [
     "openarm_left_joint7",
 ]
 OPENARM_HOME_JS = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-OPENARM_TRAJECTORY_DURATION_SEC = 2
+OPENARM_TRAJECTORY_DURATION_SEC = 0.1
 OPENARM_NUM_JOINTS = 7
 
 # MoveIt IK solver configuration
 OPENARM_IK_GROUP_NAME = "left_arm"
-OPENARM_IK_FRAME_ID = "openarm_body_link0"
+OPENARM_IK_FRAME_ID = "world"
 OPENARM_IK_LINK_NAME = "openarm_left_hand_tcp"
 
 # -----------------------------------------------------------------------------

@@ -28,6 +28,7 @@ from beavr.teleop.components.operator.operator_types import CartesianTarget
 from beavr.teleop.configs.constants import robots
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class XArmOperator(Operator):
@@ -166,6 +167,17 @@ class XArmOperator(Operator):
         self.hand_init_t: Optional[np.ndarray] = None
         self.last_valid_hand_frame: Optional[np.ndarray] = None  # Cache for last received hand frame
 
+        # Mock mode for testing
+        self.use_mock_hand_frames: bool = False
+        self.mock_hand_frames: list = []
+        self.mock_hand_frame_index: int = 0
+
+        # Set default mock frames: continuous movement from y=0 to y=0.3 over 100 frames
+        self._generate_default_mock_frames()
+
+        # NOTE: To enable mock mode, add this line after operator initialization:
+        # operator.use_mock_hand_frames = True
+
         # Filter setup
         self.use_filter = use_filter
         self.comp_filter: Optional[CompStateFilter] = None
@@ -186,15 +198,16 @@ class XArmOperator(Operator):
 
         # Initialize pose logger based on config
         self.logging_config = logging_config or {"enabled": False}
+
+        self.logging_config = {"enabled": True, "filename": "openarm"}
+
         self.logging_enabled = self.logging_config.get("enabled", False)
         self.pose_logger: Optional[PoseLogger] = None
 
         if self.logging_enabled:
-            log_filename = self.logging_config.get("filename", f"{self.operator_name}_poses.csv")
-            logger.info(
-                f"Initializing pose logger for {self.operator_name} with config: {self.logging_config}"
-            )
-            self.pose_logger = PoseLogger(filename=log_filename)  # Pass filename if specified
+            log_prefix = self.logging_config.get("filename", self.operator_name)
+            logger.info(f"Initializing pose logger for {self.operator_name} with config: {self.logging_config}")
+            self.pose_logger = PoseLogger(prefix=log_prefix)
         else:
             self.pose_logger = None
 
@@ -241,25 +254,93 @@ class XArmOperator(Operator):
         """Returns whether the operator is controlling a real robot (placeholder)."""
         return self.real
 
+    def _generate_default_mock_frames(self):
+        """
+        Generate default mock frames: continuous movement from y=0 to y=0.3 over 100 frames.
+        The frames use identity rotation with translation in y-axis only.
+        """
+        self.mock_hand_frames = []
+        for i in range(100):
+            y_position = i / 99.0  # Linear interpolation from 0 to 0.3
+            # Frame format: [translation, x_axis, y_axis, z_axis]
+            frame = [
+                [0.0, y_position * 0.3, 0.0],  # Translation: moves in y-axis
+                [1.0, 0.0, 0.0],  # X-axis identity
+                [0.0, 1.0, 0.0],  # Y-axis identity
+                [0.0, 0.0, 1.0],  # Z-axis identity
+            ]
+            self.mock_hand_frames.append(frame)
+        logger.info(f"Generated {len(self.mock_hand_frames)} default mock frames (y: 0→0.3)")
+
     def _contains_nan(self, arr: np.ndarray) -> bool:
         """Check if numpy array contains any NaN values."""
         if arr is None:
             return True
         return bool(np.any(np.isnan(arr)))
 
-    # ------------------------------
-    # Frame / Matrix utilities
-    # ------------------------------
+    ## ------------------------------
+    ## Frame / Matrix utilities
+    ## ------------------------------
+    # def _generate_default_mock_frames(self):
+    #    """
+    #    Generate default mock frames: continuous movement from y=0 to y=0.3 over 100 frames.
+    #    The frames use identity rotation with translation in y-axis only.
+    #    """
+    #    self.mock_hand_frames = []
+    #    for i in range(100):
+    #        y_position = (i / 99.0) * 0.3  # Linear interpolation from 0 to 0.3
+    #        # Frame format: [translation, x_axis, y_axis, z_axis]
+    #        frame = [
+    #            [0.0, y_position, 0.0],      # Translation: moves in y-axis
+    #            [1.0, 0.0, 0.0],              # X-axis identity
+    #            [0.0, 1.0, 0.0],              # Y-axis identity
+    #            [0.0, 0.0, 1.0]               # Z-axis identity
+    #        ]
+    #        self.mock_hand_frames.append(frame)
+    #    logger.info(f"Generated {len(self.mock_hand_frames)} default mock frames (y: 0→0.3)")
+
+    def set_mock_hand_frames(self, frames: list):
+        """
+        Set a list of mock hand frames for testing purposes.
+        When set, the operator will iterate through these frames instead of reading from the subscriber.
+
+        Args:
+            frames: List of 4x3 numpy arrays or tuples representing hand frames
+        """
+        self.mock_hand_frames = frames
+        self.mock_hand_frame_index = 0
+        self.use_mock_hand_frames = True
+        logger.info(f"Set mock hand frames mode with {len(frames)} frames")
+
     def _get_hand_frame(self) -> Optional[np.ndarray]:
         """
-        Gets the latest hand frame from the ZMQ subscriber.
+        Gets the latest hand frame from the ZMQ subscriber or mock data.
         Uses a cached value if no new data is available immediately.
 
         Returns:
             A 4x3 numpy array representing the hand frame ([t; R_col1; R_col2; R_col3]),
             or None if no valid frame is available.
         """
-        # Try to get new data without blocking
+        if self.use_mock_hand_frames and self.mock_hand_frames:
+            # Mock mode: iterate through predefined frames
+            if self.mock_hand_frame_index < len(self.mock_hand_frames):
+                frame_data = self.mock_hand_frames[self.mock_hand_frame_index]
+                self.mock_hand_frame_index += 1
+                logger.debug(
+                    f"Mock mode: returning frame {self.mock_hand_frame_index - 1}/{len(self.mock_hand_frames)}"
+                )
+                return (
+                    np.array(frame_data, dtype=np.float64).reshape(4, 3) if isinstance(frame_data, list) else frame_data
+                )
+            else:
+                logger.debug("Mock mode: reached end of frame list, returning last frame")
+                return (
+                    np.array(self.mock_hand_frames[-1], dtype=np.float64).reshape(4, 3)
+                    if isinstance(self.mock_hand_frames[-1], list)
+                    else self.mock_hand_frames[-1]
+                )
+
+        # Normal mode: Try to get new data without blocking
         data = self._arm_transformed_keypoint_subscriber.recv_keypoints()
         if data is not None:
             logger.debug(f"Received data from subscriber: has nan {math.isnan(data.keypoints[0][0])}")
@@ -595,9 +676,7 @@ class XArmOperator(Operator):
 
         # Ensure initial robot/hand poses are set (should be handled by reset)
         if self.robot_init_h is None or self.hand_init_h is None:
-            logger.error(
-                f"ERROR ({self.operator_name}): Initial robot or hand poses not set. Triggering reset."
-            )
+            logger.error(f"ERROR ({self.operator_name}): Initial robot or hand poses not set. Triggering reset.")
             self.is_first_frame = True  # Force reset on next cycle
             return
 
@@ -661,6 +740,13 @@ class XArmOperator(Operator):
         h_rt_rh[:3, :3] = self.project_to_rotation_matrix(h_rt_rh[:3, :3])
         self.robot_moving_h = copy(h_rt_rh)  # Store the calculated target pose
 
+        # Log positions for debugging
+        logger.debug(
+            f"{self.operator_name} - robot_init_h pos: {self.robot_init_h[:3, 3]}, "
+            f"robot_moving_h pos: {self.robot_moving_h[:3, 3]}, "
+            f"current translation: {h_ht_hi_t}"
+        )
+
         # 8. Convert Target Pose to Cartesian [pos, quat]
         cart_target_raw = self._homo2cart(self.robot_moving_h)
 
@@ -721,7 +807,6 @@ class XArmOperator(Operator):
                     topic="endeff_coords",
                     data=cartesian_cmd,
                 )
-                logger.debug(f"Successfully published command to port {self._publisher_port}")
                 # logger.info(f"Published end-effector command: {command_data}")
             except (ConnectionError, SerializationError) as e:
                 logger.error(f"Failed to publish end-effector command: {e}")
@@ -735,21 +820,59 @@ class XArmOperator(Operator):
         # 12. Logging (Optional)
         if self.logging_enabled and self.pose_logger:
             try:
-                # Ensure all matrices are valid before logging
-                if (
-                    self.hand_init_h is not None
-                    and self.robot_init_h is not None
-                    and self.hand_moving_h is not None
-                    and self.robot_moving_h is not None
-                ):
-                    self.pose_logger.log_frame(
-                        self.hand_init_h,
-                        self.robot_init_h,
-                        self.hand_moving_h,
-                        self.robot_moving_h,  # Log the target pose *before* filtering
+                # Identify which matrices have NaN values
+                nan_matrices = []
+                if self.hand_init_h is None or self._contains_nan(self.hand_init_h):
+                    nan_matrices.append("hand_init_h")
+                if self.robot_init_h is None or self._contains_nan(self.robot_init_h):
+                    nan_matrices.append("robot_init_h")
+                if self.hand_moving_h is None or self._contains_nan(self.hand_moving_h):
+                    nan_matrices.append("hand_moving_h")
+                if self.robot_moving_h is None or self._contains_nan(self.robot_moving_h):
+                    nan_matrices.append("robot_moving_h")
+                if h_hi_hh_inv is None or self._contains_nan(h_hi_hh_inv):
+                    nan_matrices.append("h_hi_hh_inv")
+                if h_ht_hi is None or self._contains_nan(h_ht_hi):
+                    nan_matrices.append("h_ht_hi")
+                if h_r_v_inv is None or self._contains_nan(h_r_v_inv):
+                    nan_matrices.append("h_r_v_inv")
+                if h_t_v_inv is None or self._contains_nan(h_t_v_inv):
+                    nan_matrices.append("h_t_v_inv")
+                if h_ht_hi_r is None or self._contains_nan(h_ht_hi_r):
+                    nan_matrices.append("h_ht_hi_r")
+                if h_ht_hi_t is None or self._contains_nan(h_ht_hi_t):
+                    nan_matrices.append("h_ht_hi_t")
+                if relative_affine_in_robot_frame is None or self._contains_nan(relative_affine_in_robot_frame):
+                    nan_matrices.append("relative_affine_in_robot_frame")
+                if cart_target_raw is None or self._contains_nan(cart_target_raw):
+                    nan_matrices.append("cart_target_raw")
+                if cart_target_filtered is None or self._contains_nan(cart_target_filtered):
+                    nan_matrices.append("cart_target_filtered")
+
+                # Only log if all matrices are valid
+                if not nan_matrices:
+                    self.pose_logger.log_transformation_pipeline(
+                        hand_init_h=self.hand_init_h,
+                        robot_init_h=self.robot_init_h,
+                        hand_moving_h=self.hand_moving_h,
+                        h_hi_hh_inv=h_hi_hh_inv,
+                        h_ht_hi=h_ht_hi,
+                        h_r_v_inv=h_r_v_inv,
+                        h_t_v_inv=h_t_v_inv,
+                        h_ht_hi_r=h_ht_hi_r,
+                        h_ht_hi_t=h_ht_hi_t,
+                        relative_affine=relative_affine_in_robot_frame,
+                        robot_moving_h=self.robot_moving_h,
+                        cart_target_raw=cart_target_raw,
+                        cart_target_filtered=cart_target_filtered,
+                        resolution_scale=self.resolution_scale,
                     )
+                    logger.debug(f"Logged transformation pipeline frame {self.pose_logger.frame_count - 1}")
+                else:
+                    logger.warning(f"Skipping logging due to NaN values in matrices: {', '.join(nan_matrices)}")
+                    logger.info(f"hand hand moving frame: {self.hand_moving_h}")
             except Exception as e:
-                logger.error(f"Error logging frame ({self.operator_name}): {e}")
+                logger.error(f"Error logging transformation pipeline ({self.operator_name}): {e}")
 
     def moving_average(self, action: np.ndarray, queue: list, limit: int) -> np.ndarray:
         """
@@ -793,9 +916,7 @@ class XArmOperator(Operator):
                     try:
                         subscriber.stop()
                     except Exception as e:
-                        logger.warning(
-                            f"Error stopping subscriber in {getattr(self, 'operator_name', 'unknown')}: {e}"
-                        )
+                        logger.warning(f"Error stopping subscriber in {getattr(self, 'operator_name', 'unknown')}: {e}")
 
         # Stop handshake server if it exists
         if hasattr(self, "_handshake_coordinator") and hasattr(self, "_handshake_server_id"):

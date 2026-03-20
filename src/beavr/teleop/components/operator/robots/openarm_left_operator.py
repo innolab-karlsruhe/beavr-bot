@@ -6,34 +6,26 @@ from beavr.teleop.configs.constants import robots
 
 from .xarm7_operator import XArmOperator
 
-# Axis swap permutation: z->y, x->z, y->x (permutation [2,0,1])
-H_AXIS_SWAP = np.array([
-    [0.0, 1.0, 0.0, 0.0],
-    [0.0, 0.0, 1.0, 0.0],
-    [1.0, 0.0, 0.0, 0.0],
-    [0.0, 0.0, 0.0, 1.0],
-])
-
-# 90 degree rotation around X axis
-H_X_ROT_90 = np.array([
-    [1.0, 0.0, 0.0, 0.0],
-    [0.0, 0.0, -1.0, 0.0],
-    [0.0, 1.0, 0.0, 0.0],
-    [0.0, 0.0, 0.0, 1.0],
-])
-
-# Reverse 90 degree X rotation to fix Z inversion
-H_X_ROT_90_INV = np.array([
-    [1.0, 0.0, 0.0, 0.0],
-    [0.0, 0.0, 1.0, 0.0],
-    [0.0, -1.0, 0.0, 0.0],
-    [0.0, 0.0, 0.0, 1.0],
-])
 
 # Combined: axis swap with Z inversion correction
-H_R_V_LEFT = H_AXIS_SWAP @ H_X_ROT_90_INV
+H_R_V_LEFT =  np.array(
+    [
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [-1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
 
-H_T_V_LEFT = np.eye(4)
+H_T_V_LEFT = np.array(
+    [
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [-1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+
 
 
 class OpenArmLeftOperator(XArmOperator):
