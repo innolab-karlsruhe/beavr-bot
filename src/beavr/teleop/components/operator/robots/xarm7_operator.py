@@ -51,6 +51,7 @@ class XArmOperator(Operator):
         moving_average_limit: int,
         h_r_v: np.ndarray,  # Transformation matrix Robot base to VR base
         h_t_v: np.ndarray,  # Transformation matrix Hand Tracking base to VR base
+        final_translation : np.ndarray, # Final matrix to match robot base
         use_filter: bool = True,
         arm_resolution_port: Optional[int] = None,
         teleoperation_state_port: Optional[int] = None,
@@ -155,11 +156,13 @@ class XArmOperator(Operator):
             "hand_coords": self._hand_coords_subscriber,
         }
 
+        gripper_publish_port = robots.OPENARM_LEFT_GRIPPER_CMD_PORT if hand_side == robots.LEFT else robots.OPENARM_RIGHT_GRIPPER_CMD_PORT
+
         # Using the centralized publisher manager
         self._publisher_manager = ZMQPublisherManager.get_instance(self._context)
         self._publisher_host = host
         self._publisher_port = endeff_publish_port
-        self._gripper_publish_port = robots.OPENARM_GRIPPER_CMD_PORT
+        self._gripper_publish_port = gripper_publish_port
         self._gripper_width = robots.OPENARM_GRIPPER_MIN_WIDTH_M
         self._first_gripper_publish = True
 
@@ -181,6 +184,9 @@ class XArmOperator(Operator):
         self.hand_moving_h: Optional[np.ndarray] = None
         self.hand_init_t: Optional[np.ndarray] = None
         self.last_valid_hand_frame: Optional[np.ndarray] = None  # Cache for last received hand frame
+
+        # Final transformation
+        self.final_translation = final_translation
 
         # Filter setup
         self.use_filter = use_filter
@@ -684,15 +690,8 @@ class XArmOperator(Operator):
             R_cur = self.hand_moving_h[:3, :3]
             R_rel_world = R_cur @ R_init.T
 
-            rot = Rotation.from_matrix(R_rel_world)
-            yaw, pitch, roll = rot.as_euler("zyx", degrees=False)
-
-            yaw = -yaw
-
-            R_rel_fixed = Rotation.from_euler("zyx", [yaw, pitch, roll], degrees=False).as_matrix()
-
             h_ht_hi = np.eye(4)
-            h_ht_hi[:3, :3] = R_rel_fixed
+            h_ht_hi[:3, :3] = R_rel_world
             h_ht_hi[:3, 3] = dt_world
 
             # Alternative using solve: H_HT_HI = np.linalg.solve(self.hand_init_H, self.hand_moving_H)
@@ -740,6 +739,10 @@ class XArmOperator(Operator):
 
         # Ensure the final target pose has a valid rotation matrix
         h_rt_rh[:3, :3] = self.project_to_rotation_matrix(h_rt_rh[:3, :3])
+
+        # 7A. Apply matrices to match the target robot coordinate system
+        h_rt_rh[:3, 3] = (self.final_translation @ np.r_[h_rt_rh[:3, 3], 1.0])[:3]
+
         self.robot_moving_h = copy(h_rt_rh)  # Store the calculated target pose
 
         # Log positions for debugging
