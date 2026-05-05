@@ -63,6 +63,9 @@ class TeleOperator(ProcessInstantiator):
         if self.teleop_config.flags.operate:
             self._init_operator()
 
+        # Add script to relay ros2 images to vr lens
+        self._init_frame_relay()
+
     # Function to start the components
     def _start_component(self, configs):
         import traceback
@@ -80,6 +83,17 @@ class TeleOperator(ProcessInstantiator):
         except Exception as e:
             logger.error(f"Error starting component: {e}\n{traceback.format_exc()}")
             raise
+
+    # Function to start image relay component
+    def _init_frame_relay(self):
+        def run_script():
+            try:
+                logger.info("Component instantiated successfully: Ros2 frame relay")
+                os.system("python src/beavr/teleop/relay_images.py")
+            except Exception as e:
+                logger.error(f"Error while ros2 image relay: {e}")
+        process = Process(target=run_script)
+        self.processes.append(process)
 
     # Function to start the detector component
     def _init_detector(self):
