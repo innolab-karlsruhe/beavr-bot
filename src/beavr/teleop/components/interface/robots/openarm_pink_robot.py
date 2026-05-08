@@ -71,17 +71,17 @@ def get_urdf_from_ros_topic(timeout_sec: float = 5.0) -> str:
 # ============================================================================
 # Task costs for FrameTask (end-effector positioning)
 PINK_POSITION_COST = 1.0  # [cost] / [m] - aggressive positioning priority
-PINK_ORIENTATION_COST = 0.5  # [cost] / [rad] - low cost to enable orientation tracking
+PINK_ORIENTATION_COST = 1.0  # [cost] / [rad] - low cost to enable orientation tracking
 PINK_LM_DAMPING = 0.1  # Levenberg-Marquardt damping - very low for faster convergence
 
 # Posture task for joint regularization
-PINK_POSTURE_COST = 0.1  # [cost] / [rad] - reduced to minimize interference with frame task
+PINK_POSTURE_COST = 0.01  # [cost] / [rad] - reduced to minimize interference with frame task
 
 # IK velocity integration time step
-PINK_IK_DT = 0.01  # seconds - smaller steps for stability
+PINK_IK_DT = 0.033  # seconds - smaller steps for stability
 
 # Iterative IK parameters
-PINK_MAX_ITERATIONS = 3  # max IK iterations per call
+PINK_MAX_ITERATIONS = 10  # max IK iterations per call
 PINK_POS_TOLERANCE = 0.01  # position tolerance in meters
 PINK_ORIENTATION_TOLERANCE = 0.0174533  # orientation tolerance (1 degree)
 
@@ -294,20 +294,20 @@ class PinkKinematics:
                     )
 
                 # Starting with the second iteration, check for convergence based on error change
-                if position_error_norm_old is not None and configuration_q_old is not None:
-                    # Break if the error does not change by more than 1mm (0.001m)
-                    if (
-                        abs(position_error_norm - position_error_norm_old) < 0.001
-                        and abs(orientation_error - orientation_error_old) < 0.001
-                    ):
-                        # logging.getLogger("movePerf").log(logging.DEBUG, f"Converged because of no significant error change ({abs(position_error_norm - position_error_norm_old)})")
-                        break
+                #if position_error_norm_old is not None and configuration_q_old is not None:
+                #    # Break if the error does not change by more than 1mm (0.001m)
+                #    if (
+                #        abs(position_error_norm - position_error_norm_old) < 0.001
+                #        and abs(orientation_error - orientation_error_old) < 0.001
+                #    ):
+                #        # logging.getLogger("movePerf").log(logging.DEBUG, f"Converged because of no significant error change ({abs(position_error_norm - position_error_norm_old)})")
+                #        break
 
-                    # If error increased, use previous configuration and break
-                    if (position_error_norm_old < position_error_norm) and (orientation_error_old < orientation_error):
-                        # logging.getLogger("movePerf").log(logging.DEBUG, f"Converged because of increasing error ({position_error_norm:.4f}). Using previous configuration")
-                        self._configuration.update(configuration_q_old)
-                        break
+                #    # If error increased, use previous configuration and break
+                #    if (position_error_norm_old < position_error_norm) and (orientation_error_old < orientation_error):
+                #        # logging.getLogger("movePerf").log(logging.DEBUG, f"Converged because of increasing error ({position_error_norm:.4f}). Using previous configuration")
+                #        self._configuration.update(configuration_q_old)
+                #        break
 
                 if position_error_norm < PINK_POS_TOLERANCE and orientation_error < PINK_ORIENTATION_TOLERANCE:
                     logger.info(f"[Pink IK] Converged at iteration {iteration + 1}, error={position_error_norm:.4f}m")
@@ -800,8 +800,20 @@ class OpenArmPinkRobot(RobotWrapper):
                 target_pos = new_cartesian_position.copy()
                 target_time = new_cartesian_timestamp
 
-                # Get current joint positions as seed for IK
-                seed_joints = self._controller.get_arm_position()
+                # Seed IK from the last *commanded* joint positions, not the
+                # measured ones.  On real hardware pos_states_ lags behind
+                # pos_commands_ (PD tracking error + CAN latency), which causes
+                # the IK to start from a slightly different configuration every
+                # call and converge to a different solution, diverging from the
+                # sim trajectory.  Using the last commanded position makes both
+                # modes follow the same path.  Fall back to measured positions
+                # only at startup before any command has been issued.
+                with self._joint_angles_lock:
+                    seed_joints = (
+                        list(self._latest_joint_angles)
+                        if self._latest_joint_angles is not None
+                        else self._controller.get_arm_position()
+                    )
 
                 # Synchronous IK call with seed state (if available)
                 joint_angles = self._kinematics.compute_ik(position, orientation, seed_state=seed_joints)

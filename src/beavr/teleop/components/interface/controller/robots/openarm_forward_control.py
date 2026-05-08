@@ -23,7 +23,7 @@ class OpenArmForwardController:
         self,
         joint_names: list,
         command_topic_name: str = "",
-        max_delta: float = 0.2,
+        max_delta: float = 0.4,
     ):
         self.joint_names = joint_names
         self.num_joints = len(self.joint_names)
@@ -37,6 +37,12 @@ class OpenArmForwardController:
         self._current_joint_positions: Optional[np.ndarray] = None
         self._current_joint_velocities: Optional[np.ndarray] = None
         self._current_joint_efforts: Optional[np.ndarray] = None
+        # Last position that was actually published as a command.  Used as the
+        # reference for rate-limiting instead of the measured joint positions,
+        # so that the limiter behaves identically in sim and on real hardware
+        # (on real hardware measured positions lag behind commanded ones).
+        self._last_published_positions: Optional[np.ndarray] = None
+        self._last_published_lock = threading.Lock()
 
         self._initialize_ros2()
 
@@ -155,28 +161,44 @@ class OpenArmForwardController:
             logger.error(f"Expected {self.num_joints} joint angles, got {len(joint_angles)}")
             return False
 
-        if self._current_joint_positions is None:
-            logger.warning("No current joint positions available, sending goal directly")
+        # Use the last *commanded* position as the rate-limit reference so
+        # that the limiter is independent of motor tracking error and CAN
+        # latency.  On real hardware the measured positions (_current_joint_
+        # positions) lag behind commands, which would cause the limiter to
+        # consistently over-scale and produce a different (slower, choppier)
+        # trajectory than in simulation.  Fall back to measured positions only
+        # before the first command has been published.
+        with self._last_published_lock:
+            reference = (
+                self._last_published_positions
+                if self._last_published_positions is not None
+                else self._current_joint_positions
+            )
+
+        if reference is None:
+            logger.warning("No reference joint positions available, sending goal directly")
             scaled_joint_angles = joint_angles
         else:
-            delta = joint_angles - self._current_joint_positions
+            delta = joint_angles - reference
             max_delta_abs = np.max(np.abs(delta))
 
             if max_delta_abs > self.max_delta:
                 scale_factor = self.max_delta / max_delta_abs
                 scaled_delta = delta * scale_factor
-                scaled_joint_angles = self._current_joint_positions + scaled_delta
-
+                scaled_joint_angles = reference + scaled_delta
             else:
                 scaled_joint_angles = joint_angles
 
         command = Float64MultiArray()
         command.data = [float(x) for x in scaled_joint_angles]
 
-
         with self._pedal_pressed_lock:
             if self._pedal_pressed:
                 self._joint_command_publisher.publish(command)
+                with self._last_published_lock:
+                    self._last_published_positions = np.array(
+                        scaled_joint_angles, dtype=np.float64
+                    )
         return True
 
     def home_arm(self) -> bool:
