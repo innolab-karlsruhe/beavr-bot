@@ -294,20 +294,20 @@ class PinkKinematics:
                     )
 
                 # Starting with the second iteration, check for convergence based on error change
-                #if position_error_norm_old is not None and configuration_q_old is not None:
-                #    # Break if the error does not change by more than 1mm (0.001m)
-                #    if (
-                #        abs(position_error_norm - position_error_norm_old) < 0.001
-                #        and abs(orientation_error - orientation_error_old) < 0.001
-                #    ):
-                #        # logging.getLogger("movePerf").log(logging.DEBUG, f"Converged because of no significant error change ({abs(position_error_norm - position_error_norm_old)})")
-                #        break
+                if position_error_norm_old is not None and configuration_q_old is not None:
+                    # Break if the error does not change by more than 1mm (0.001m)
+                    if (
+                        abs(position_error_norm - position_error_norm_old) < 0.001
+                        and abs(orientation_error - orientation_error_old) < 0.001
+                    ):
+                        # logging.getLogger("movePerf").log(logging.DEBUG, f"Converged because of no significant error change ({abs(position_error_norm - position_error_norm_old)})")
+                        break
 
-                #    # If error increased, use previous configuration and break
-                #    if (position_error_norm_old < position_error_norm) and (orientation_error_old < orientation_error):
-                #        # logging.getLogger("movePerf").log(logging.DEBUG, f"Converged because of increasing error ({position_error_norm:.4f}). Using previous configuration")
-                #        self._configuration.update(configuration_q_old)
-                #        break
+                    # If error increased, use previous configuration and break
+                    if (position_error_norm_old < position_error_norm) and (orientation_error_old < orientation_error):
+                        # logging.getLogger("movePerf").log(logging.DEBUG, f"Converged because of increasing error ({position_error_norm:.4f}). Using previous configuration")
+                        self._configuration.update(configuration_q_old)
+                        break
 
                 if position_error_norm < PINK_POS_TOLERANCE and orientation_error < PINK_ORIENTATION_TOLERANCE:
                     logger.info(f"[Pink IK] Converged at iteration {iteration + 1}, error={position_error_norm:.4f}m")
