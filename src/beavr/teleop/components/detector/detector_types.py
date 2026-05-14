@@ -63,9 +63,19 @@ class InputFrame:
     ] = None
 
 
+@dataclass(frozen=True)
+class ControllerFrame:
+    timestamp_s: float
+    hand_side: HandSide
+    position: Tuple[float, float, float]
+    orientation_xyzw: Tuple[float, float, float, float]
+    trigger_value: float
+
+
 __all__ = [
     "HandSide",
     "ButtonEvent",
     "SessionCommand",
     "InputFrame",
+    "ControllerFrame",
 ]
