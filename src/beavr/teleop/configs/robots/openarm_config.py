@@ -14,6 +14,8 @@ from typing import Any
 from beavr.teleop.common.configs.loader import Laterality, log_laterality_configuration
 from beavr.teleop.components.interface.controller.robots.openarm_gripper_control import OpenArmGripperRobot
 from beavr.teleop.components.interface.robots.openarm_pink_robot import OpenArmPinkRobot
+from beavr.teleop.components.operator.robots.openarm_left_operator import H_R_V_LEFT, H_T_V_LEFT, TRANSLATION_TO_ROBOT_LEFT
+from beavr.teleop.components.operator.robots.openarm_right_operator import H_R_V_RIGHT, H_T_V_RIGHT, TRANSLATION_TO_ROBOT_RIGHT
 from beavr.teleop.configs.constants import network, ports, robots
 from beavr.teleop.configs.robots import TeleopRobotConfig
 from beavr.teleop.configs.robots.shared_components import SharedComponentRegistry
@@ -183,6 +185,7 @@ class OpenArmConfig:
     visualizers: list = field(default_factory=list)
     robots: list = field(default_factory=list)
     operators: list = field(default_factory=list)
+    controllers: list = field(default_factory=list)
 
     def __post_init__(self):
         log_laterality_configuration(self.laterality, robots.ROBOT_NAME_OPENARM)
@@ -355,6 +358,40 @@ class OpenArmConfig:
                 )
             )
 
+        self.controllers = []
+        if self.laterality in [Laterality.LEFT, Laterality.BIMANUAL]:
+            self.controllers.append(
+                SharedComponentRegistry.get_controller_config(
+                    hand_side=robots.LEFT,
+                    host=network.HOST_ADDRESS,
+                    controller_port=ports.LEFT_CONTROLLER_PORT,
+                    endeff_publish_port=ports.OPENARM_LEFT_ENDEFF_SUBSCRIBE_PORT,
+                    endeff_subscribe_port=ports.OPENARM_LEFT_ENDEFF_PUBLISH_PORT,
+                    gripper_publish_port=robots.OPENARM_LEFT_GRIPPER_CMD_PORT,
+                    h_r_v=H_R_V_LEFT,
+                    h_t_v=H_T_V_LEFT,
+                    final_translation=TRANSLATION_TO_ROBOT_LEFT,
+                    teleoperation_state_port=ports.OPENARM_TELEOPERATION_STATE_PORT,
+                    arm_resolution_port=ports.KEYPOINT_STREAM_PORT,
+                )
+            )
+        if self.laterality in [Laterality.RIGHT, Laterality.BIMANUAL]:
+            self.controllers.append(
+                SharedComponentRegistry.get_controller_config(
+                    hand_side=robots.RIGHT,
+                    host=network.HOST_ADDRESS,
+                    controller_port=ports.RIGHT_CONTROLLER_PORT,
+                    endeff_publish_port=ports.OPENARM_RIGHT_ENDEFF_SUBSCRIBE_PORT,
+                    endeff_subscribe_port=ports.OPENARM_RIGHT_ENDEFF_PUBLISH_PORT,
+                    gripper_publish_port=robots.OPENARM_RIGHT_GRIPPER_CMD_PORT,
+                    h_r_v=H_R_V_RIGHT,
+                    h_t_v=H_T_V_RIGHT,
+                    final_translation=TRANSLATION_TO_ROBOT_RIGHT,
+                    teleoperation_state_port=ports.OPENARM_TELEOPERATION_STATE_PORT,
+                    arm_resolution_port=ports.KEYPOINT_STREAM_PORT,
+                )
+            )
+
     def build(self):
         return {
             "robot_name": self.robot_name,
@@ -363,4 +400,5 @@ class OpenArmConfig:
             "visualizers": [item.build() for item in self.visualizers],
             "robots": [item.build() for item in self.robots],
             "operators": [item.build() for item in self.operators],
+            "controllers": [item.build() for item in self.controllers],
         }

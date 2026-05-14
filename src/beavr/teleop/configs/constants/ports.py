@@ -11,6 +11,8 @@ ROBOT_COMMAND_PORT = 8091  # Robot commands
 # Oculus/VR ports
 RIGHT_HAND_OCULUS_RECEIVER_PORT = 8087  # Raw data from Oculus
 LEFT_HAND_OCULUS_RECEIVER_PORT = 8110  # Raw data from left hand sensor
+RIGHT_CONTROLLER_PORT = 8111
+LEFT_CONTROLLER_PORT = 8112
 OCULUS_RECEIVER_PORT = 8087  # Alias for right hand
 LEFT_HAND_RECEIVER_PORT = 8110  # Alias for left hand
 

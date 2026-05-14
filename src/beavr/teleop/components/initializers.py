@@ -62,6 +62,7 @@ class TeleOperator(ProcessInstantiator):
 
         if self.teleop_config.flags.operate:
             self._init_operator()
+            self._init_controllers()
 
         # Add script to relay ros2 images to vr lens
         self._init_frame_relay()
@@ -123,6 +124,11 @@ class TeleOperator(ProcessInstantiator):
     def _init_operator(self):
         for operator_config in self.robot_config.operators:
             self.processes.append(Process(target=self._start_component, args=(operator_config,)))
+
+    def _init_controllers(self):
+        controllers = getattr(self.robot_config, "controllers", [])
+        for controller_config in controllers:
+            self.processes.append(Process(target=self._start_component, args=(controller_config,)))
 
     def _init_robot_interface(self):
         for robot_config in self.robot_config.robots:

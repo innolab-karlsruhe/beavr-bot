@@ -9,10 +9,13 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+import numpy as np
+
 from beavr.teleop.components.detector.vr.keypoint_transform import (
     TransformHandPositionCoords,
 )
 from beavr.teleop.components.detector.vr.oculus import OculusVRHandDetector
+from beavr.teleop.components.detector.vr.controller_detector import ControllerDetector
 from beavr.teleop.components.visualizer.visualizer_2d import Hand2DVisualizer
 from beavr.teleop.configs.constants import network, ports, robots
 
@@ -31,6 +34,7 @@ class SharedComponentRegistry:
         "detector": {},  # hand_side -> config instance
         "transform": {},  # hand_side -> config instance
         "visualizer": {},  # hand_side -> config instance
+        "controller": {},  # hand_side -> config instance
     }
 
     @classmethod
@@ -137,6 +141,37 @@ class SharedComponentRegistry:
             logger.debug(f"👁️  Created shared visualizer config for {hand_side} hand")
 
         return cls._instances["visualizer"][hand_side]
+
+    @classmethod
+    def get_controller_config(
+        cls,
+        hand_side: str,
+        host: str = network.HOST_ADDRESS,
+        controller_port: Optional[int] = None,
+        endeff_publish_port: Optional[int] = None,
+        endeff_subscribe_port: Optional[int] = None,
+        gripper_publish_port: Optional[int] = None,
+        h_r_v: Any = None,
+        h_t_v: Any = None,
+        final_translation: Any = None,
+        teleoperation_state_port: Optional[int] = None,
+        arm_resolution_port: Optional[int] = None,
+    ) -> "ControllerDetectorCfg":
+        if controller_port is None:
+            controller_port = ports.RIGHT_CONTROLLER_PORT if hand_side == robots.RIGHT else ports.LEFT_CONTROLLER_PORT
+        return ControllerDetectorCfg(
+            host=host,
+            controller_port=controller_port,
+            hand_side=hand_side,
+            endeff_publish_port=endeff_publish_port or ports.OPENARM_LEFT_ENDEFF_SUBSCRIBE_PORT,
+            endeff_subscribe_port=endeff_subscribe_port or ports.OPENARM_LEFT_ENDEFF_PUBLISH_PORT,
+            gripper_publish_port=gripper_publish_port or robots.OPENARM_LEFT_GRIPPER_CMD_PORT,
+            h_r_v=h_r_v,
+            h_t_v=h_t_v,
+            final_translation=final_translation,
+            teleoperation_state_port=teleoperation_state_port,
+            arm_resolution_port=arm_resolution_port,
+        )
 
     @classmethod
     def clear(cls):
@@ -319,4 +354,49 @@ class Hand2DVisualizerCfg:
             transformed_keypoint_port=self.transformed_keypoint_port,
             oculus_feedback_port=self.oculus_feedback_port,
             display_plot=self.display_plot,
+        )
+
+
+@dataclass
+class ControllerDetectorCfg:
+    host: str = network.HOST_ADDRESS
+    controller_port: int = ports.RIGHT_CONTROLLER_PORT
+    hand_side: str = robots.RIGHT
+    endeff_publish_port: int = ports.OPENARM_LEFT_ENDEFF_SUBSCRIBE_PORT
+    endeff_subscribe_port: int = ports.OPENARM_LEFT_ENDEFF_PUBLISH_PORT
+    gripper_publish_port: int = robots.OPENARM_LEFT_GRIPPER_CMD_PORT
+    h_r_v: Any = None
+    h_t_v: Any = None
+    final_translation: Any = None
+    teleoperation_state_port: Optional[int] = None
+    arm_resolution_port: Optional[int] = None
+    use_filter: bool = True
+
+    def __post_init__(self):
+        for port_name, port_value in [
+            ("controller_port", self.controller_port),
+            ("endeff_publish_port", self.endeff_publish_port),
+            ("endeff_subscribe_port", self.endeff_subscribe_port),
+            ("gripper_publish_port", self.gripper_publish_port),
+        ]:
+            if not (1 <= port_value <= 65535):
+                raise ValueError(f"{port_name} out of valid range (1-65535): {port_value}")
+
+    def build(self):
+        h_r_v = self.h_r_v if self.h_r_v is not None else np.eye(4)
+        h_t_v = self.h_t_v if self.h_t_v is not None else np.eye(4)
+        final_translation = self.final_translation if self.final_translation is not None else np.eye(4)
+        return ControllerDetector(
+            host=self.host,
+            controller_port=self.controller_port,
+            hand_side=self.hand_side,
+            endeff_publish_port=self.endeff_publish_port,
+            endeff_subscribe_port=self.endeff_subscribe_port,
+            gripper_publish_port=self.gripper_publish_port,
+            h_r_v=h_r_v,
+            h_t_v=h_t_v,
+            final_translation=final_translation,
+            teleoperation_state_port=self.teleoperation_state_port,
+            arm_resolution_port=self.arm_resolution_port,
+            use_filter=self.use_filter,
         )
