@@ -220,8 +220,10 @@ class ControllerDetector(Component):
         self.robot_moving_h = copy(self.robot_init_h)
 
         first_controller_h = self.last_valid_controller_h
-        while first_controller_h is None:
-            time.sleep(0.01)
+        if first_controller_h is None:
+            logger.warning(f"controller_{self.hand_side}: No controller data available yet, deferring reset")
+            self.is_first_frame = True
+            return None
 
         try:
             self.controller_init_h = first_controller_h
