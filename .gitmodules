@@ -1,3 +1,3 @@
 [submodule "beavr-app"]
 	path = beavr-app
-	url = git@github.com:ARCLab-MIT/BeaVR-app.git
+	url = git@github.com:innolab-karlsruhe/beavr-app.git
