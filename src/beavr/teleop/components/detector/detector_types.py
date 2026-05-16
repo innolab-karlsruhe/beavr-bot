@@ -48,6 +48,9 @@ class InputFrame:
     - is_relative: whether keypoints are relative to wrist (1) or absolute (0),
       matching current detector output semantics.
     - frame_vectors: optional 3 orthonormal vectors (x,y,z) in absolute mode.
+    - gripper_width_m: optional pre-computed gripper width in meters.
+      When set, downstream operator MAY use it directly instead of computing
+      from thumb-tip / index-tip distance. Used by the controller-input path.
     """
 
     timestamp_s: float
@@ -61,6 +64,7 @@ class InputFrame:
             Tuple[float, float, float],
         ]
     ] = None
+    gripper_width_m: Optional[float] = None
 
 
 __all__ = [
