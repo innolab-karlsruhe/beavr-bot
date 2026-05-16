@@ -9,17 +9,113 @@ on the existing *_transformed_hand_frame and *_transformed_hand_coords topics
 from __future__ import annotations
 
 import logging
+import time
+from typing import Literal, Optional
 
 import numpy as np
+import zmq
 from scipy.spatial.transform import Rotation
 
+from beavr.teleop.common.network.publisher import ZMQPublisherManager
+from beavr.teleop.common.network.utils import create_pull_socket
+from beavr.teleop.common.time.timer import FrequencyTimer
+from beavr.teleop.components import Component
+from beavr.teleop.components.detector.detector_types import InputFrame
 from beavr.teleop.configs.constants import robots
 
 logger = logging.getLogger(__name__)
 
 
-class OculusVRControllerDetector:
-    """Receives controller pose+trigger and publishes InputFrames directly."""
+class OculusVRControllerDetector(Component):
+    """Receives controller pose+trigger and publishes InputFrames directly.
+
+    Lifecycle parallels OculusVRHandDetector but the implementation is much
+    shorter: we bypass keypoint_transform.py because controller orientation
+    is already clean.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        controller_pub_port: int,
+        hand_config: Literal["right", "left", "bimanual"] = "bimanual",
+        right_controller_port: Optional[int] = None,
+        left_controller_port: Optional[int] = None,
+    ):
+        self.notify_component_start("vr controller detector")
+        self.host = host
+        self.controller_pub_port = controller_pub_port
+        self.hand_config = hand_config
+
+        self.sides: list[str] = []
+        if hand_config in (robots.RIGHT, robots.BIMANUAL):
+            if right_controller_port is None:
+                raise ValueError("right_controller_port must be provided for right/bimanual config")
+            self.sides.append(robots.RIGHT)
+        if hand_config in (robots.LEFT, robots.BIMANUAL):
+            if left_controller_port is None:
+                raise ValueError("left_controller_port must be provided for left/bimanual config")
+            self.sides.append(robots.LEFT)
+
+        self.sockets: dict[str, zmq.Socket] = {}
+        if robots.RIGHT in self.sides:
+            self.sockets[robots.RIGHT] = create_pull_socket(host, right_controller_port)
+        if robots.LEFT in self.sides:
+            self.sockets[robots.LEFT] = create_pull_socket(host, left_controller_port)
+
+        self.publisher_manager = ZMQPublisherManager.get_instance()
+        self.timer = FrequencyTimer(robots.VR_FREQ)
+
+    def _receive(self, side: str) -> Optional[bytes]:
+        try:
+            return self.sockets[side].recv(zmq.NOBLOCK)
+        except zmq.Again:
+            return None
+
+    def stream(self):
+        logger.info(
+            f"Starting VR controller detection for sides={self.sides} on port "
+            f"{self.controller_pub_port}"
+        )
+        try:
+            while True:
+                self.timer.start_loop()
+                for side in self.sides:
+                    raw = self._receive(side)
+                    if raw is None:
+                        continue
+                    pos, quat, trigger, mode = self._parse(raw)
+                    if pos is None:
+                        continue
+                    pos, quat = self._rotate_90_around_x(pos, quat)
+                    frame_vectors = tuple(map(tuple, self._frame_from_quat(pos, quat).tolist()))
+                    gripper_width_m = self._trigger_to_width(trigger)
+
+                    input_frame = InputFrame(
+                        timestamp_s=time.time(),
+                        hand_side=side,
+                        keypoints=[],
+                        is_relative=(mode == robots.RELATIVE),
+                        frame_vectors=frame_vectors,
+                        gripper_width_m=gripper_width_m,
+                    )
+
+                    for topic_suffix in (
+                        robots.TRANSFORMED_HAND_FRAME,
+                        robots.TRANSFORMED_HAND_COORDS,
+                    ):
+                        self.publisher_manager.publish(
+                            host=self.host,
+                            port=self.controller_pub_port,
+                            topic=f"{side}_{topic_suffix}",
+                            data=input_frame,
+                        )
+                self.timer.end_loop()
+        finally:
+            for side, socket in self.sockets.items():
+                socket.close()
+                logger.info(f"Closed controller socket for side={side}")
+            logger.info("Stopped VR controller detection process.")
 
     @staticmethod
     def _trigger_to_width(trigger: float) -> float:

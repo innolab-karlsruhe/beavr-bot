@@ -149,3 +149,65 @@ def test_rotate_90_around_x_rotation_composition():
         rotated_vec_helper = Rotation.from_quat(np.array(quat_rotated)).as_matrix() @ vec
 
         np.testing.assert_allclose(rotated_vec_helper, rotated_vec_ref, atol=1e-9)
+
+
+# --- end-to-end smoke (exercises publish logic via the in-memory bus fixture) ---
+
+def test_publish_emits_on_both_topics(bus, monkeypatch):
+    """When the detector processes one valid raw message, the resulting
+    InputFrame is published on both _transformed_hand_frame and
+    _transformed_hand_coords topics.
+    """
+    from beavr.teleop.components.detector.detector_types import InputFrame
+    from beavr.teleop.components.detector.vr import oculus_controller as oc_module
+
+    # Stub the PULL socket so __init__ doesn't try to bind a real ZMQ socket.
+    class _StubSocket:
+        def recv(self, *a, **k):
+            raise oc_module.zmq.Again()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        oc_module,
+        "create_pull_socket",
+        lambda host, port: _StubSocket(),
+    )
+
+    det = OculusVRControllerDetector(
+        host="127.0.0.1",
+        controller_pub_port=9999,
+        hand_config="right",
+        right_controller_port=8122,
+    )
+
+    # Drive the publish pipeline manually using one valid message.
+    raw = b"relative:0.1,0.2,0.3|0,0,0,1|0.5"
+    pos, quat, trigger, mode = det._parse(raw)
+    assert pos is not None
+    pos, quat = det._rotate_90_around_x(pos, quat)
+    frame_vectors = tuple(map(tuple, det._frame_from_quat(pos, quat).tolist()))
+    gripper_width_m = det._trigger_to_width(trigger)
+    frame = InputFrame(
+        timestamp_s=1.0,
+        hand_side=robots.RIGHT,
+        keypoints=[],
+        is_relative=(mode == robots.RELATIVE),
+        frame_vectors=frame_vectors,
+        gripper_width_m=gripper_width_m,
+    )
+    for topic_suffix in (robots.TRANSFORMED_HAND_FRAME, robots.TRANSFORMED_HAND_COORDS):
+        det.publisher_manager.publish(
+            host="127.0.0.1",
+            port=9999,
+            topic=f"{robots.RIGHT}_{topic_suffix}",
+            data=frame,
+        )
+
+    frame_topic = bus.recv_latest(9999, f"{robots.RIGHT}_{robots.TRANSFORMED_HAND_FRAME}")
+    coords_topic = bus.recv_latest(9999, f"{robots.RIGHT}_{robots.TRANSFORMED_HAND_COORDS}")
+    assert frame_topic is not None
+    assert coords_topic is not None
+    assert frame_topic.gripper_width_m == frame.gripper_width_m
+    assert coords_topic.gripper_width_m == frame.gripper_width_m
