@@ -36,3 +36,31 @@ class OculusVRControllerDetector:
             robots.OPENARM_GRIPPER_MIN_WIDTH_M,
             min(gripper_width, robots.OPENARM_GRIPPER_MAX_WIDTH_M),
         )
+
+    @staticmethod
+    def _parse(raw: bytes):
+        """Parse a controller wire-format message.
+
+        Format: '<mode>:px,py,pz|qx,qy,qz,qw|trigger'
+        Returns (pos_tuple, quat_tuple, trigger_float, mode_str) on success,
+        (None, None, None, None) on any parse failure (caller skips frame).
+        """
+        try:
+            text = raw.decode("utf-8").strip()
+            mode, payload = text.split(":", 1)
+            if mode not in (robots.RELATIVE, robots.ABSOLUTE):
+                logger.warning(f"Unknown controller mode: {mode!r}")
+                return (None, None, None, None)
+            pos_str, quat_str, trigger_str = payload.split("|")
+            pos = tuple(float(v) for v in pos_str.split(","))
+            quat = tuple(float(v) for v in quat_str.split(","))
+            trigger = float(trigger_str)
+            if len(pos) != 3 or len(quat) != 4:
+                logger.warning(
+                    f"Controller message has wrong arity: pos={len(pos)}, quat={len(quat)}"
+                )
+                return (None, None, None, None)
+            return (pos, quat, trigger, mode)
+        except Exception as e:
+            logger.warning(f"Failed to parse controller message: {e!r}; raw={raw!r}")
+            return (None, None, None, None)
