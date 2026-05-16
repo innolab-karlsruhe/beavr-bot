@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 from scipy.spatial.transform import Rotation
 
 from beavr.teleop.components.detector.vr.oculus_controller import (
