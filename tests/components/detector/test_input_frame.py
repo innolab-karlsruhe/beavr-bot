@@ -1,5 +1,3 @@
-import pytest
-
 from beavr.teleop.components.detector.detector_types import InputFrame
 
 
