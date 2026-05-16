@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from scipy.spatial.transform import Rotation
 
 from beavr.teleop.components.detector.vr.oculus_controller import (
     OculusVRControllerDetector,
@@ -113,3 +114,39 @@ def test_frame_from_quat_non_unit_quaternion_is_normalized():
     np.testing.assert_allclose(frame[1], (1.0, 0.0, 0.0), atol=1e-6)
     np.testing.assert_allclose(frame[2], (0.0, 1.0, 0.0), atol=1e-6)
     np.testing.assert_allclose(frame[3], (0.0, 0.0, 1.0), atol=1e-6)
+
+
+# --- _rotate_90_around_x ---
+
+def test_rotate_90_around_x_position_only_consistency():
+    # (x, y, z) -> (x, -z, y)
+    pos_in = (1.0, 2.0, 3.0)
+    quat_in = (0.0, 0.0, 0.0, 1.0)
+    pos_out, quat_out = OculusVRControllerDetector._rotate_90_around_x(pos_in, quat_in)
+    np.testing.assert_allclose(pos_out, (1.0, -3.0, 2.0), atol=1e-9)
+
+
+def test_rotate_90_around_x_rotation_composition():
+    # Applying the rotation to a vector via the rotated quat must equal
+    # applying it directly to the rotated original-quat output.
+    rng = np.random.default_rng(seed=0)
+    for _ in range(5):
+        raw_quat = rng.normal(size=4)
+        raw_quat = raw_quat / np.linalg.norm(raw_quat)
+        pos = tuple(rng.normal(size=3))
+        vec = np.array([0.0, 0.0, 1.0])  # arbitrary probe
+
+        # Reference: apply original rotation to the probe, then rotate result around X.
+        R_orig = Rotation.from_quat(raw_quat).as_matrix()
+        rotated_vec_ref = R_orig @ vec
+        rotated_vec_ref = np.array([
+            rotated_vec_ref[0],
+            -rotated_vec_ref[2],
+            rotated_vec_ref[1],
+        ])
+
+        # Helper output: apply rotated quaternion to the probe.
+        _, quat_rotated = OculusVRControllerDetector._rotate_90_around_x(pos, tuple(raw_quat))
+        rotated_vec_helper = Rotation.from_quat(np.array(quat_rotated)).as_matrix() @ vec
+
+        np.testing.assert_allclose(rotated_vec_helper, rotated_vec_ref, atol=1e-9)
