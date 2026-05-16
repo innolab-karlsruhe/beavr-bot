@@ -575,8 +575,12 @@ class XArmOperator(Operator):
 
     def _extract_gripper_width(self) -> float:
         """
-        Computes continuous gripper width from hand keypoints.
-        Maps thumb-index distance (0-9cm) to gripper width (0-4.5cm).
+        Computes continuous gripper width from hand keypoints OR a pre-computed
+        gripper_width_m field on the incoming InputFrame.
+
+        When the detector provides gripper_width_m explicitly (controller path),
+        we prefer it. Otherwise we fall back to thumb-tip / index-tip distance
+        mapping (hand-tracking path).
 
         Returns:
             Float representing gripper width in meters
@@ -586,6 +590,21 @@ class XArmOperator(Operator):
         if coords_data is None:
             # No new data, return previous width (initialize to 0 if not set)
             return getattr(self, "_gripper_width", robots.OPENARM_GRIPPER_MIN_WIDTH_M)
+
+        # NEW: prefer explicit gripper width if the detector provided one.
+        explicit_width = getattr(coords_data, "gripper_width_m", None)
+        if explicit_width is not None:
+            width = float(explicit_width)
+            width = max(
+                robots.OPENARM_GRIPPER_MIN_WIDTH_M,
+                min(width, robots.OPENARM_GRIPPER_MAX_WIDTH_M),
+            )
+            self._gripper_width = width
+            logger.debug(
+                f"[{self.operator_name}] Gripper width (explicit): "
+                f"{self._gripper_width * 1000:.1f}mm"
+            )
+            return self._gripper_width
 
         if coords_data.keypoints is None:
             return getattr(self, "_gripper_width", robots.OPENARM_GRIPPER_MIN_WIDTH_M)
