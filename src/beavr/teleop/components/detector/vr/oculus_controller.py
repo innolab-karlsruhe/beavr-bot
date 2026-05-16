@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
+from scipy.spatial.transform import Rotation
+
 from beavr.teleop.configs.constants import robots
 
 logger = logging.getLogger(__name__)
@@ -64,3 +67,22 @@ class OculusVRControllerDetector:
         except Exception as e:
             logger.warning(f"Failed to parse controller message: {e!r}; raw={raw!r}")
             return (None, None, None, None)
+
+    @staticmethod
+    def _frame_from_quat(pos, quat) -> np.ndarray:
+        """Build a 4×3 frame array [origin; Rx; Ry; Rz] from position + xyzw quaternion.
+
+        The 3 basis-vector rows are the columns of the rotation matrix that
+        the quaternion represents. This matches the layout that
+        xarm7_operator._turn_frame_to_homo_mat() expects.
+
+        Non-unit quaternions are normalized by scipy.spatial.transform.Rotation.
+        """
+        rot = Rotation.from_quat(np.asarray(quat, dtype=np.float64))
+        rotation_matrix = rot.as_matrix()  # shape (3, 3); columns are basis vectors
+        frame = np.empty((4, 3), dtype=np.float64)
+        frame[0] = np.asarray(pos, dtype=np.float64)
+        frame[1] = rotation_matrix[:, 0]
+        frame[2] = rotation_matrix[:, 1]
+        frame[3] = rotation_matrix[:, 2]
+        return frame
