@@ -86,3 +86,7 @@ DEPTH_PORT_OFFSET = 1000
 # LeKiwi ports
 LEKIWI_PORT = 5555
 LEKIWI_VIDEO_PORT = 5556
+
+# Oculus controller ports (controller-tracking path)
+RIGHT_CONTROLLER_PORT = 8122  # Raw controller pose+trigger, right
+LEFT_CONTROLLER_PORT = 8123   # Raw controller pose+trigger, left
