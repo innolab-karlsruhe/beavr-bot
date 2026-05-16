@@ -86,3 +86,29 @@ class OculusVRControllerDetector:
         frame[2] = rotation_matrix[:, 1]
         frame[3] = rotation_matrix[:, 2]
         return frame
+
+    @staticmethod
+    def _rotate_90_around_x(pos, quat):
+        """Apply OpenArm-convention 90° rotation around the X axis to a pose.
+
+        Position: (x, y, z) -> (x, -z, y). This matches the same operation
+        OculusVRHandDetector applies to keypoints.
+
+        Rotation: pre-multiply the original rotation by the 90°-around-X
+        rotation, so that applying the resulting rotation to any vector v
+        is equivalent to first applying the original rotation to v and then
+        rotating the result around X.
+        """
+        x, y, z = pos
+        rotated_pos = (x, -z, y)
+
+        # Quaternion for 90° around +X axis (xyzw): (sin(45), 0, 0, cos(45))
+        s = np.sin(np.pi / 4)
+        c = np.cos(np.pi / 4)
+        r_x = Rotation.from_quat((s, 0.0, 0.0, c))
+        r_orig = Rotation.from_quat(np.asarray(quat, dtype=np.float64))
+
+        # Pre-multiply: combined = R_x ∘ R_orig (apply orig first, then R_x).
+        combined = r_x * r_orig
+        rotated_quat = tuple(combined.as_quat())  # xyzw
+        return rotated_pos, rotated_quat
