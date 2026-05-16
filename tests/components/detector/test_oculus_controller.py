@@ -76,3 +76,40 @@ def test_parse_invalid_float_returns_none():
     raw = b"relative:0,not_a_number,0|0,0,0,1|0.5"
     result = OculusVRControllerDetector._parse(raw)
     assert result == (None, None, None, None)
+
+
+# --- _frame_from_quat ---
+
+def test_frame_from_quat_identity_quaternion():
+    pos = (1.0, 2.0, 3.0)
+    # Identity quaternion (xyzw)
+    quat = (0.0, 0.0, 0.0, 1.0)
+    frame = OculusVRControllerDetector._frame_from_quat(pos, quat)
+    assert frame.shape == (4, 3)
+    np.testing.assert_allclose(frame[0], pos, atol=1e-9)
+    # Columns of identity rotation matrix
+    np.testing.assert_allclose(frame[1], (1.0, 0.0, 0.0), atol=1e-9)
+    np.testing.assert_allclose(frame[2], (0.0, 1.0, 0.0), atol=1e-9)
+    np.testing.assert_allclose(frame[3], (0.0, 0.0, 1.0), atol=1e-9)
+
+
+def test_frame_from_quat_90deg_around_y():
+    # 90° around Y axis: x -> -z, z -> x; quaternion xyzw = (0, sin(45), 0, cos(45))
+    s = np.sin(np.pi / 4)
+    c = np.cos(np.pi / 4)
+    quat = (0.0, s, 0.0, c)
+    frame = OculusVRControllerDetector._frame_from_quat((0.0, 0.0, 0.0), quat)
+    # After 90° around Y: column 0 (was +x) -> (0, 0, -1); column 2 (was +z) -> (1, 0, 0)
+    np.testing.assert_allclose(frame[1], (0.0, 0.0, -1.0), atol=1e-6)
+    np.testing.assert_allclose(frame[2], (0.0, 1.0, 0.0), atol=1e-6)
+    np.testing.assert_allclose(frame[3], (1.0, 0.0, 0.0), atol=1e-6)
+
+
+def test_frame_from_quat_non_unit_quaternion_is_normalized():
+    # 2x identity quaternion is still a valid rotation when normalized.
+    pos = (0.0, 0.0, 0.0)
+    quat = (0.0, 0.0, 0.0, 2.0)
+    frame = OculusVRControllerDetector._frame_from_quat(pos, quat)
+    np.testing.assert_allclose(frame[1], (1.0, 0.0, 0.0), atol=1e-6)
+    np.testing.assert_allclose(frame[2], (0.0, 1.0, 0.0), atol=1e-6)
+    np.testing.assert_allclose(frame[3], (0.0, 0.0, 1.0), atol=1e-6)
