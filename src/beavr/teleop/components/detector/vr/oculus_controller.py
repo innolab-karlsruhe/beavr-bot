@@ -30,15 +30,7 @@ class OculusVRControllerDetector:
         Out-of-range values are clamped.
         """
         clamped = max(0.0, min(1.0, float(trigger)))
-        distance = (1.0 - clamped) * robots.OPENARM_GRIPPER_THRESHOLD_M
-        gripper_width = (
-            (distance / robots.OPENARM_GRIPPER_THRESHOLD_M)
-            * robots.OPENARM_GRIPPER_MAX_WIDTH_M
-        )
-        return max(
-            robots.OPENARM_GRIPPER_MIN_WIDTH_M,
-            min(gripper_width, robots.OPENARM_GRIPPER_MAX_WIDTH_M),
-        )
+        return (1.0 - clamped) * robots.OPENARM_GRIPPER_MAX_WIDTH_M
 
     @staticmethod
     def _parse(raw: bytes):
@@ -64,7 +56,7 @@ class OculusVRControllerDetector:
                 )
                 return (None, None, None, None)
             return (pos, quat, trigger, mode)
-        except Exception as e:
+        except (UnicodeDecodeError, ValueError) as e:
             logger.warning(f"Failed to parse controller message: {e!r}; raw={raw!r}")
             return (None, None, None, None)
 
