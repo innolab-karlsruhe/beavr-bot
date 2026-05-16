@@ -591,10 +591,9 @@ class XArmOperator(Operator):
             # No new data, return previous width (initialize to 0 if not set)
             return getattr(self, "_gripper_width", robots.OPENARM_GRIPPER_MIN_WIDTH_M)
 
-        # NEW: prefer explicit gripper width if the detector provided one.
-        explicit_width = getattr(coords_data, "gripper_width_m", None)
-        if explicit_width is not None:
-            width = float(explicit_width)
+        # Prefer pre-computed width when the detector provides one (e.g. controller path).
+        if coords_data.gripper_width_m is not None:
+            width = float(coords_data.gripper_width_m)
             width = max(
                 robots.OPENARM_GRIPPER_MIN_WIDTH_M,
                 min(width, robots.OPENARM_GRIPPER_MAX_WIDTH_M),
