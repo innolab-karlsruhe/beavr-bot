@@ -50,11 +50,15 @@ class OculusVRControllerDetector(Component):
         self.sides: list[str] = []
         if hand_config in (robots.RIGHT, robots.BIMANUAL):
             if right_controller_port is None:
-                raise ValueError("right_controller_port must be provided for right/bimanual config")
+                raise ValueError(
+                    f"right_controller_port is required when hand_config={hand_config!r}"
+                )
             self.sides.append(robots.RIGHT)
         if hand_config in (robots.LEFT, robots.BIMANUAL):
             if left_controller_port is None:
-                raise ValueError("left_controller_port must be provided for left/bimanual config")
+                raise ValueError(
+                    f"left_controller_port is required when hand_config={hand_config!r}"
+                )
             self.sides.append(robots.LEFT)
 
         self.sockets: dict[str, zmq.Socket] = {}
@@ -100,6 +104,8 @@ class OculusVRControllerDetector(Component):
                         gripper_width_m=gripper_width_m,
                     )
 
+                    # Operator subscribes to both topics; controller path bypasses
+                    # keypoint_transform.py so we publish the same frame to both.
                     for topic_suffix in (
                         robots.TRANSFORMED_HAND_FRAME,
                         robots.TRANSFORMED_HAND_COORDS,
