@@ -349,6 +349,29 @@ class OculusVRControllerDetectorCfg:
             if value is not None and not (1 <= value <= 65535):
                 raise ValueError(f"{name} out of valid range (1-65535): {value}")
 
+        # Enforce hand_config / per-side port consistency.
+        if self.hand_config == robots.RIGHT and self.left_controller_port is not None:
+            raise ValueError(
+                f"hand_config=RIGHT requires left_controller_port=None "
+                f"(got {self.left_controller_port})"
+            )
+        if self.hand_config == robots.LEFT and self.right_controller_port is not None:
+            raise ValueError(
+                f"hand_config=LEFT requires right_controller_port=None "
+                f"(got {self.right_controller_port})"
+            )
+
+        # Reject duplicate ports across all configured controller-related sockets.
+        all_ports = [self.controller_pub_port]
+        if self.right_controller_port is not None:
+            all_ports.append(self.right_controller_port)
+        if self.left_controller_port is not None:
+            all_ports.append(self.left_controller_port)
+        if len(set(all_ports)) != len(all_ports):
+            raise ValueError(
+                f"Duplicate ports in OculusVRControllerDetectorCfg: {all_ports}"
+            )
+
     def build(self):
         return OculusVRControllerDetector(
             host=self.host,
