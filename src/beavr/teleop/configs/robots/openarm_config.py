@@ -16,7 +16,10 @@ from beavr.teleop.components.interface.controller.robots.openarm_gripper_control
 from beavr.teleop.components.interface.robots.openarm_pink_robot import OpenArmPinkRobot
 from beavr.teleop.configs.constants import network, ports, robots
 from beavr.teleop.configs.robots import TeleopRobotConfig
-from beavr.teleop.configs.robots.shared_components import SharedComponentRegistry
+from beavr.teleop.configs.robots.shared_components import (
+    OculusVRControllerDetectorCfg,
+    SharedComponentRegistry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +208,30 @@ class OpenArmConfig:
                 SharedComponentRegistry.get_detector_config(
                     hand_side=hand_side,
                     host=network.HOST_ADDRESS,
+                )
+            )
+
+        # Controller-tracking detector (per side). The pub port MUST match the
+        # corresponding transform's publish port so the operator sees both
+        # sources on the same (port, topic) tuples.
+        if self.laterality in [Laterality.RIGHT, Laterality.BIMANUAL]:
+            self.detector.append(
+                OculusVRControllerDetectorCfg(
+                    host=network.HOST_ADDRESS,
+                    controller_pub_port=ports.KEYPOINT_TRANSFORM_PORT,
+                    hand_config=robots.RIGHT,
+                    right_controller_port=ports.RIGHT_CONTROLLER_PORT,
+                    left_controller_port=None,
+                )
+            )
+        if self.laterality in [Laterality.LEFT, Laterality.BIMANUAL]:
+            self.detector.append(
+                OculusVRControllerDetectorCfg(
+                    host=network.HOST_ADDRESS,
+                    controller_pub_port=ports.LEFT_KEYPOINT_TRANSFORM_PORT,
+                    hand_config=robots.LEFT,
+                    right_controller_port=None,
+                    left_controller_port=ports.LEFT_CONTROLLER_PORT,
                 )
             )
 
