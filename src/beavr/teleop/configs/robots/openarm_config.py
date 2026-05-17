@@ -211,9 +211,10 @@ class OpenArmConfig:
                 )
             )
 
-        # Controller-tracking detector (per side). The pub port MUST match the
-        # corresponding transform's publish port so the operator sees both
-        # sources on the same (port, topic) tuples.
+        # Controller-tracking detector (per side). Independent path — publishes
+        # InputFrames directly on the transform port, bypassing keypoint_transform.
+        # The pub port MUST match the corresponding transform's publish port so
+        # the operator sees both sources on the same (port, topic) tuples.
         if self.laterality in [Laterality.RIGHT, Laterality.BIMANUAL]:
             self.detector.append(
                 OculusVRControllerDetectorCfg(
