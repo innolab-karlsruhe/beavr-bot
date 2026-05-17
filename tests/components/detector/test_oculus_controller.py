@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from scipy.spatial.transform import Rotation
 
 from beavr.teleop.components.detector.vr.oculus_controller import (
@@ -151,21 +152,22 @@ def test_rotate_90_around_x_rotation_composition():
         np.testing.assert_allclose(rotated_vec_helper, rotated_vec_ref, atol=1e-9)
 
 
-# --- end-to-end smoke (exercises publish logic via the in-memory bus fixture) ---
+# --- end-to-end: drive stream() with stubbed _receive ---
 
-def test_publish_emits_on_both_topics(bus, monkeypatch):
-    """When the detector processes one valid raw message, the resulting
-    InputFrame is published on both _transformed_hand_frame and
-    _transformed_hand_coords topics.
+
+class _StopStream(Exception):
+    """Sentinel raised inside _receive to exit stream() after one iteration."""
+
+
+def test_stream_publishes_on_both_topics(bus, monkeypatch):
+    """Drive stream() through one iteration with a single valid raw message and
+    verify both _transformed_hand_frame and _transformed_hand_coords topics
+    receive the resulting InputFrame.
     """
-    from beavr.teleop.components.detector.detector_types import InputFrame
     from beavr.teleop.components.detector.vr import oculus_controller as oc_module
 
-    # Stub the PULL socket so __init__ doesn't try to bind a real ZMQ socket.
+    # Stub create_pull_socket so __init__ doesn't try to bind a real ZMQ socket.
     class _StubSocket:
-        def recv(self, *a, **k):
-            raise oc_module.zmq.Again()
-
         def close(self):
             pass
 
@@ -182,32 +184,34 @@ def test_publish_emits_on_both_topics(bus, monkeypatch):
         right_controller_port=8122,
     )
 
-    # Drive the publish pipeline manually using one valid message.
-    raw = b"relative:0.1,0.2,0.3|0,0,0,1|0.5"
-    pos, quat, trigger, mode = det._parse(raw)
-    assert pos is not None
-    pos, quat = det._rotate_90_around_x(pos, quat)
-    frame_vectors = tuple(map(tuple, det._frame_from_quat(pos, quat).tolist()))
-    gripper_width_m = det._trigger_to_width(trigger)
-    frame = InputFrame(
-        timestamp_s=1.0,
-        hand_side=robots.RIGHT,
-        keypoints=[],
-        is_relative=(mode == robots.RELATIVE),
-        frame_vectors=frame_vectors,
-        gripper_width_m=gripper_width_m,
-    )
-    for topic_suffix in (robots.TRANSFORMED_HAND_FRAME, robots.TRANSFORMED_HAND_COORDS):
-        det.publisher_manager.publish(
-            host="127.0.0.1",
-            port=9999,
-            topic=f"{robots.RIGHT}_{topic_suffix}",
-            data=frame,
-        )
+    # Override _receive so the first call returns a valid message and the
+    # second call raises _StopStream — that exits stream() via its finally
+    # block without leaving the test in an infinite loop.
+    calls = {"n": 0}
+
+    def _fake_receive(side):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return b"relative:0.1,0.2,0.3|0,0,0,1|0.5"
+        raise _StopStream()
+
+    monkeypatch.setattr(det, "_receive", _fake_receive)
+
+    with pytest.raises(_StopStream):
+        det.stream()
 
     frame_topic = bus.recv_latest(9999, f"{robots.RIGHT}_{robots.TRANSFORMED_HAND_FRAME}")
     coords_topic = bus.recv_latest(9999, f"{robots.RIGHT}_{robots.TRANSFORMED_HAND_COORDS}")
     assert frame_topic is not None
     assert coords_topic is not None
-    assert frame_topic.gripper_width_m == frame.gripper_width_m
-    assert coords_topic.gripper_width_m == frame.gripper_width_m
+
+    # trigger=0.5 -> gripper_width_m = 0.5 * MAX
+    assert np.isclose(
+        frame_topic.gripper_width_m,
+        0.5 * robots.OPENARM_GRIPPER_MAX_WIDTH_M,
+    )
+    assert frame_topic.is_relative is True
+    assert frame_topic.hand_side == robots.RIGHT
+    # frame_vectors is a 4-tuple of 3-tuples
+    assert len(frame_topic.frame_vectors) == 4
+    assert all(len(row) == 3 for row in frame_topic.frame_vectors)
