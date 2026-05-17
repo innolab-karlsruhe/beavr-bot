@@ -13,6 +13,9 @@ from beavr.teleop.components.detector.vr.keypoint_transform import (
     TransformHandPositionCoords,
 )
 from beavr.teleop.components.detector.vr.oculus import OculusVRHandDetector
+from beavr.teleop.components.detector.vr.oculus_controller import (
+    OculusVRControllerDetector,
+)
 from beavr.teleop.components.visualizer.visualizer_2d import Hand2DVisualizer
 from beavr.teleop.configs.constants import network, ports, robots
 
@@ -319,4 +322,38 @@ class Hand2DVisualizerCfg:
             transformed_keypoint_port=self.transformed_keypoint_port,
             oculus_feedback_port=self.oculus_feedback_port,
             display_plot=self.display_plot,
+        )
+
+
+@dataclass
+class OculusVRControllerDetectorCfg:
+    """Configuration for the controller-tracking detector path.
+
+    `controller_pub_port` MUST equal the port used by the existing
+    TransformHandPositionCoords for the same side, so the operator's
+    subscribers see both publishers on the same (port, topic) tuples.
+    """
+
+    host: str = network.HOST_ADDRESS
+    controller_pub_port: int = ports.KEYPOINT_TRANSFORM_PORT
+    hand_config: str = robots.BIMANUAL
+    right_controller_port: Optional[int] = ports.RIGHT_CONTROLLER_PORT
+    left_controller_port: Optional[int] = ports.LEFT_CONTROLLER_PORT
+
+    def __post_init__(self):
+        for name, value in [
+            ("controller_pub_port", self.controller_pub_port),
+            ("right_controller_port", self.right_controller_port),
+            ("left_controller_port", self.left_controller_port),
+        ]:
+            if value is not None and not (1 <= value <= 65535):
+                raise ValueError(f"{name} out of valid range (1-65535): {value}")
+
+    def build(self):
+        return OculusVRControllerDetector(
+            host=self.host,
+            controller_pub_port=self.controller_pub_port,
+            hand_config=self.hand_config,
+            right_controller_port=self.right_controller_port,
+            left_controller_port=self.left_controller_port,
         )
