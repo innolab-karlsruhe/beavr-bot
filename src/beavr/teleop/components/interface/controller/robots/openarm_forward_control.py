@@ -23,7 +23,7 @@ class OpenArmForwardController:
         self,
         joint_names: list,
         command_topic_name: str = "",
-        max_delta: float = 0.4,
+        max_delta: float = 0.15,
     ):
         self.joint_names = joint_names
         self.num_joints = len(self.joint_names)

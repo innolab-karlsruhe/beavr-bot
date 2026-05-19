@@ -80,7 +80,7 @@ PINK_LM_DAMPING = 0.1  # Levenberg-Marquardt damping - very low for faster conve
 # "elbow-out" reference posture. Both costs stay well below PINK_POSITION_COST
 # so end-effector tracking remains the dominant objective.
 PINK_POSTURE_COST_DEFAULT = 0.01  # [cost] / [rad] - effectively frees non-biased joints
-PINK_POSTURE_COST_ELBOW = 0.4  # [cost] / [rad] - nullspace bias strength on joint3
+PINK_POSTURE_COST_ELBOW = 0.6  # [cost] / [rad] - nullspace bias strength on joint3
 
 # Target swivel angle for joint3 (shoulder/upper-arm roll) that pushes the
 # elbow laterally outward. ~0.6 rad (~34 deg), well within the URDF limit
@@ -88,12 +88,12 @@ PINK_POSTURE_COST_ELBOW = 0.4  # [cost] / [rad] - nullspace bias strength on joi
 # the left/right axis convention encoded in the URDF (`reflect` parameter in
 # openarm_arm.xacro). If an arm's elbow ends up pointing *inward* in practice,
 # flip the corresponding sign below.
-PINK_ELBOW_OUT_ANGLE_RAD = 0.6
+PINK_ELBOW_OUT_ANGLE_RAD = 0.3
 PINK_ELBOW_OUT_SIGN_LEFT = +1.0
 PINK_ELBOW_OUT_SIGN_RIGHT = -1.0
 
 # IK velocity integration time step
-PINK_IK_DT = 0.033  # seconds - smaller steps for stability
+PINK_IK_DT = 0.015 # seconds - smaller steps for stability
 
 # Iterative IK parameters
 PINK_MAX_ITERATIONS = 10  # max IK iterations per call

@@ -724,7 +724,7 @@ class XArmOperator(Operator):
             h_ht_hi_r = h_r_v_inv[:3, :3] @ h_ht_hi[:3, :3] @ self.h_r_v[:3, :3]
             # Transform translation part: Apply H_T_V inverse to relative hand translation
             # Scale translation by resolution_scale
-            h_ht_hi_t = h_t_v_inv[:3, :3] @ h_ht_hi[:3, 3] #* self.resolution_scale
+            h_ht_hi_t = h_t_v_inv[:3, :3] @ h_ht_hi[:3, 3] * self.resolution_scale
 
         except np.linalg.LinAlgError:
             logger.error(f"Error ({self.operator_name}): Could not invert H_R_V or H_T_V matrix.")

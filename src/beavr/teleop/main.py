@@ -243,6 +243,6 @@ def main(cfg: MainConfig):
 
 
 if __name__ == "__main__":
-    time.sleep(2)
-    print("Slept for 2 seconds, starting now")
+    time.sleep(5)
+    print("Slept for 5 seconds, starting now")
     main()
