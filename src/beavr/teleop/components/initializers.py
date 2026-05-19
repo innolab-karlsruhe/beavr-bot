@@ -97,7 +97,17 @@ class TeleOperator(ProcessInstantiator):
 
     # Function to start the detector component
     def _init_detector(self):
-        self.processes.append(Process(target=self._start_component, args=(self.robot_config.detector,)))
+        # Each detector's stream() is an infinite loop, so bundling them into
+        # one process means only the first ever runs. Spawn one Process per
+        # detector config so hand-tracking and controller-tracking detectors
+        # can run concurrently.
+        detectors = self.robot_config.detector
+        if not isinstance(detectors, list):
+            detectors = [detectors]
+        for detector_config in detectors:
+            self.processes.append(
+                Process(target=self._start_component, args=(detector_config,))
+            )
 
     # Function to start the sim environment
     def _init_sim_environment(self):

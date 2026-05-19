@@ -69,6 +69,7 @@ class OpenArmOperatorCfg:
     host: str = network.HOST_ADDRESS
     laterality: Laterality = Laterality.LEFT
     transformed_keypoints_port: int = ports.LEFT_KEYPOINT_TRANSFORM_PORT
+    controller_keypoints_port: int = ports.LEFT_CONTROLLER_TRANSFORM_PORT
     stream_configs: dict[str, Any] = field(
         default_factory=lambda: {
             "host": network.HOST_ADDRESS,
@@ -94,6 +95,7 @@ class OpenArmOperatorCfg:
     def __post_init__(self):
         all_ports = [
             self.transformed_keypoints_port,
+            self.controller_keypoints_port,
             self.endeff_publish_port,
             self.endeff_subscribe_port,
             self.arm_resolution_port,
@@ -115,6 +117,7 @@ class OpenArmOperatorCfg:
             return OpenArmLeftOperator(
                 host=self.host,
                 transformed_keypoints_port=self.transformed_keypoints_port,
+                controller_keypoints_port=self.controller_keypoints_port,
                 stream_configs=self.stream_configs,
                 stream_oculus=self.stream_oculus,
                 endeff_publish_port=self.endeff_publish_port,
@@ -133,6 +136,7 @@ class OpenArmOperatorCfg:
             return OpenArmRightOperator(
                 host=self.host,
                 transformed_keypoints_port=self.transformed_keypoints_port,
+                controller_keypoints_port=self.controller_keypoints_port,
                 stream_configs=self.stream_configs,
                 stream_oculus=self.stream_oculus,
                 endeff_publish_port=self.endeff_publish_port,
@@ -212,14 +216,14 @@ class OpenArmConfig:
             )
 
         # Controller-tracking detector (per side). Independent path — publishes
-        # InputFrames directly on the transform port, bypassing keypoint_transform.
-        # The pub port MUST match the corresponding transform's publish port so
-        # the operator sees both sources on the same (port, topic) tuples.
+        # InputFrames directly on its own controller-transform port. Operator
+        # subscribes to both this port and the keypoint-transform port and
+        # picks whichever has the fresher frame.
         if self.laterality in [Laterality.RIGHT, Laterality.BIMANUAL]:
             self.detector.append(
                 OculusVRControllerDetectorCfg(
                     host=network.HOST_ADDRESS,
-                    controller_pub_port=ports.KEYPOINT_TRANSFORM_PORT,
+                    controller_pub_port=ports.RIGHT_CONTROLLER_TRANSFORM_PORT,
                     hand_config=robots.RIGHT,
                     right_controller_port=ports.RIGHT_CONTROLLER_PORT,
                     left_controller_port=None,
@@ -229,7 +233,7 @@ class OpenArmConfig:
             self.detector.append(
                 OculusVRControllerDetectorCfg(
                     host=network.HOST_ADDRESS,
-                    controller_pub_port=ports.LEFT_KEYPOINT_TRANSFORM_PORT,
+                    controller_pub_port=ports.LEFT_CONTROLLER_TRANSFORM_PORT,
                     hand_config=robots.LEFT,
                     right_controller_port=None,
                     left_controller_port=ports.LEFT_CONTROLLER_PORT,
@@ -337,6 +341,7 @@ class OpenArmConfig:
                 OpenArmOperatorCfg(
                     host=network.HOST_ADDRESS,
                     transformed_keypoints_port=ports.LEFT_KEYPOINT_TRANSFORM_PORT,
+                    controller_keypoints_port=ports.LEFT_CONTROLLER_TRANSFORM_PORT,
                     stream_configs={
                         "host": network.HOST_ADDRESS,
                         "port": ports.CONTROL_STREAM_PORT,
@@ -362,6 +367,7 @@ class OpenArmConfig:
                 OpenArmOperatorCfg(
                     host=network.HOST_ADDRESS,
                     transformed_keypoints_port=ports.KEYPOINT_TRANSFORM_PORT,
+                    controller_keypoints_port=ports.RIGHT_CONTROLLER_TRANSFORM_PORT,
                     stream_configs={
                         "host": network.HOST_ADDRESS,
                         "port": ports.CONTROL_STREAM_PORT,

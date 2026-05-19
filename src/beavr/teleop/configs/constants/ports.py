@@ -90,3 +90,10 @@ LEKIWI_VIDEO_PORT = 5556
 # Oculus controller ports (controller-tracking path)
 RIGHT_CONTROLLER_PORT = 8122  # Raw controller pose+trigger, right
 LEFT_CONTROLLER_PORT = 8123   # Raw controller pose+trigger, left
+
+# Controller-derived InputFrame publish ports (parallel to KEYPOINT_TRANSFORM_PORT).
+# The controller path bypasses keypoint_transform.py but still produces an
+# InputFrame, so the operator subscribes to both this port AND the corresponding
+# keypoint_transform port, whichever yields a fresher frame.
+RIGHT_CONTROLLER_TRANSFORM_PORT = 8124
+LEFT_CONTROLLER_TRANSFORM_PORT = 8125
