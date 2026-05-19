@@ -329,13 +329,15 @@ class Hand2DVisualizerCfg:
 class OculusVRControllerDetectorCfg:
     """Configuration for the controller-tracking detector path.
 
-    `controller_pub_port` MUST equal the port used by the existing
-    TransformHandPositionCoords for the same side, so the operator's
-    subscribers see both publishers on the same (port, topic) tuples.
+    `controller_pub_port` is dedicated to the controller path so the detector
+    can run in its own process without ZMQ PUB-bind collisions against
+    TransformHandPositionCoords. The operator subscribes to both this port
+    and the keypoint-transform port and uses whichever produces a fresher
+    frame.
     """
 
     host: str = network.HOST_ADDRESS
-    controller_pub_port: int = ports.KEYPOINT_TRANSFORM_PORT
+    controller_pub_port: int = ports.RIGHT_CONTROLLER_TRANSFORM_PORT
     hand_config: str = robots.BIMANUAL
     right_controller_port: Optional[int] = ports.RIGHT_CONTROLLER_PORT
     left_controller_port: Optional[int] = ports.LEFT_CONTROLLER_PORT

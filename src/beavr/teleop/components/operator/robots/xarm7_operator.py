@@ -57,6 +57,7 @@ class XArmOperator(Operator):
         teleoperation_state_port: Optional[int] = None,
         logging_config: Optional[Dict[str, Any]] = None,
         hand_side: str = robots.RIGHT,
+        controller_keypoints_port: Optional[int] = None,
     ):
         """
         Initializes the XArmOperator.
@@ -149,11 +150,35 @@ class XArmOperator(Operator):
         )
         self._latest_hand_coords = None
 
+        # Controller-tracking path. The controller detector publishes InputFrames
+        # with the same topics on a separate port, so we subscribe to both and
+        # pick the source with the fresher timestamp in _get_hand_frame and
+        # _extract_gripper_width.
+        self._controller_frame_subscriber: Optional[ZMQSubscriber] = None
+        self._controller_coords_subscriber: Optional[ZMQSubscriber] = None
+        if controller_keypoints_port:
+            self._controller_frame_subscriber = ZMQSubscriber(
+                host=host,
+                port=controller_keypoints_port,
+                topic=frame_topic,
+                context=self._context,
+                message_type=InputFrame,
+            )
+            self._controller_coords_subscriber = ZMQSubscriber(
+                host=host,
+                port=controller_keypoints_port,
+                topic=coords_topic,
+                context=self._context,
+                message_type=InputFrame,
+            )
+
         self._subscribers = {
             "endeff_homo": self.endeff_homo_subscriber,
             "teleop_state": self._arm_teleop_state_subscriber,
             "resolution_scale": self._arm_resolution_subscriber,
             "hand_coords": self._hand_coords_subscriber,
+            "controller_frame": self._controller_frame_subscriber,
+            "controller_coords": self._controller_coords_subscriber,
         }
 
         gripper_publish_port = robots.OPENARM_LEFT_GRIPPER_CMD_PORT if hand_side == robots.LEFT else robots.OPENARM_RIGHT_GRIPPER_CMD_PORT
@@ -270,6 +295,15 @@ class XArmOperator(Operator):
             return True
         return bool(np.any(np.isnan(arr)))
 
+    @staticmethod
+    def _pick_fresher(a: Optional[InputFrame], b: Optional[InputFrame]) -> Optional[InputFrame]:
+        """Return whichever InputFrame has the most recent timestamp_s."""
+        if a is None:
+            return b
+        if b is None:
+            return a
+        return a if a.timestamp_s >= b.timestamp_s else b
+
     def _get_hand_frame(self) -> Optional[np.ndarray]:
         """
         Gets the latest hand frame from the ZMQ subscriber.
@@ -280,9 +314,16 @@ class XArmOperator(Operator):
             or None if no valid frame is available.
         """
 
-        # Normal mode: Try to get new data without blocking
-        data = self._arm_transformed_keypoint_subscriber.recv_keypoints()
-        if data is not None:
+        # Normal mode: Try to get new data without blocking. When a controller
+        # subscriber is configured, take whichever side has the fresher frame.
+        hand_data = self._arm_transformed_keypoint_subscriber.recv_keypoints()
+        ctrl_data = (
+            self._controller_frame_subscriber.recv_keypoints()
+            if self._controller_frame_subscriber is not None
+            else None
+        )
+        data = self._pick_fresher(hand_data, ctrl_data)
+        if data is not None and data.keypoints:
             logger.debug(f"Received data from subscriber: has nan {math.isnan(data.keypoints[0][0])}")
 
         if data is not None:
@@ -585,8 +626,15 @@ class XArmOperator(Operator):
         Returns:
             Float representing gripper width in meters
         """
-        # Get latest hand coordinates
-        coords_data = self._hand_coords_subscriber.recv_keypoints()
+        # Get latest hand coordinates. With both hand and controller paths
+        # active, prefer whichever source has the fresher InputFrame.
+        hand_coords = self._hand_coords_subscriber.recv_keypoints()
+        ctrl_coords = (
+            self._controller_coords_subscriber.recv_keypoints()
+            if self._controller_coords_subscriber is not None
+            else None
+        )
+        coords_data = self._pick_fresher(hand_coords, ctrl_coords)
         if coords_data is None:
             # No new data, return previous width (initialize to 0 if not set)
             return getattr(self, "_gripper_width", robots.OPENARM_GRIPPER_MIN_WIDTH_M)

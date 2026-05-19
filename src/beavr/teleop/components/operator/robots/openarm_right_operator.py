@@ -50,6 +50,7 @@ class OpenArmRightOperator(XArmOperator):
         arm_resolution_port: Optional[int] = None,
         teleoperation_state_port: Optional[int] = None,
         logging_config: Optional[Dict[str, Any]] = None,
+        controller_keypoints_port: Optional[int] = None,
     ):
         super().__init__(
             operator_name="openarm_right_operator",
@@ -68,4 +69,5 @@ class OpenArmRightOperator(XArmOperator):
             teleoperation_state_port=teleoperation_state_port,
             logging_config=logging_config,
             hand_side=robots.RIGHT,
+            controller_keypoints_port=controller_keypoints_port,
         )
