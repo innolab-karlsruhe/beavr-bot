@@ -34,33 +34,12 @@ def contains_nan(arr: np.ndarray) -> bool:
 
 
 def check_array_validity(arr: np.ndarray, name: str) -> bool:
-    """Check if array is valid and log detailed information about issues."""
+    """Check if array is valid (contains no NaN or Inf values)."""
     if arr is None:
-        logger.warning(f"{name}: Array is None")
         return False
-
     if not isinstance(arr, np.ndarray):
-        logger.warning(f"{name}: Expected numpy array, got {type(arr)}")
         return False
-
-    nan_mask = np.isnan(arr)
-    inf_mask = np.isinf(arr)
-
-    has_nan = np.any(nan_mask)
-    has_inf = np.any(inf_mask)
-
-    if has_nan or has_inf:
-        nan_count = np.sum(nan_mask)
-        inf_count = np.sum(inf_mask)
-        logger.warning(
-            f"{name}: Found {nan_count} NaN values and {inf_count} Inf values. "
-            f"Shape: {arr.shape}, dtype: {arr.dtype}, min/max: {np.nanmin(arr)}/{np.nanmax(arr)}"
-        )
-        if arr.size < 20:
-            logger.warning(f"{name} full array:\n{arr}")
-        return False
-
-    return True
+    return not (bool(np.any(np.isnan(arr))) or bool(np.any(np.isinf(arr))))
 
 
 class HandMode(IntEnum):
@@ -212,32 +191,20 @@ class TransformHandPositionCoords(Component):
             # Extract keypoints from InputFrame object
             keypoints = np.asanyarray(input_frame.keypoints)
 
-            # Check for NaN/Inf in raw keypoints
             if not check_array_validity(keypoints, "raw_keypoints"):
-                logger.error("Received keypoints contain invalid values (NaN/Inf)")
                 self._log_raw_keypoints(keypoints, input_frame.is_relative)
                 return None, None
 
-            # Record raw keypoints from VR device for debugging
-            # logger.debug(f"Raw keypoints shape: {keypoints.shape}, data: {keypoints}")
             self._log_raw_keypoints(keypoints, input_frame.is_relative)
 
-            # Determine data type from is_relative field
             data_type = self.relative_mode if input_frame.is_relative else self.absolute_mode
 
-            # return data_type, keypoints.reshape(robots.OCULUS_NUM_KEYPOINTS, 3)
             expected_size = robots.OCULUS_NUM_KEYPOINTS * 3
             if keypoints.size != expected_size:
-                logger.error(
-                    f"Invalid keypoints size: got {keypoints.size}, expected {expected_size}. Raw data: {keypoints}"
-                )
                 return None, None
 
             reshaped_keypoints = keypoints.reshape(robots.OCULUS_NUM_KEYPOINTS, 3)
-
-            # Check reshaped keypoints for validity
             if not check_array_validity(reshaped_keypoints, "reshaped_keypoints"):
-                logger.error("Reshaped keypoints contain invalid values")
                 return None, None
 
             return data_type, reshaped_keypoints
@@ -248,13 +215,11 @@ class TransformHandPositionCoords(Component):
 
     def _orthogonalize_frame(self, x_vec, y_vec, z_vec):
         """Ensure three vectors form an orthogonal frame using Gram-Schmidt process"""
-        # Check validity of input vectors
         if (
             not check_array_validity(x_vec, "x_vec_orthogonalize")
             or not check_array_validity(y_vec, "y_vec_orthogonalize")
             or not check_array_validity(z_vec, "z_vec_orthogonalize")
         ):
-            logger.error("Input vectors for orthogonalization contain invalid values")
             return np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])
 
         x_vec = x_vec.astype(np.float64)
@@ -263,94 +228,52 @@ class TransformHandPositionCoords(Component):
 
         # Ensure x is normalized
         x_vec = normalize_vector(x_vec)
-        check_array_validity(x_vec, "normalized_x_vec")
 
         # Make y orthogonal to x
         y_vec = y_vec - np.dot(y_vec, x_vec) * x_vec
         y_vec = normalize_vector(y_vec)
-        check_array_validity(y_vec, "normalized_y_vec")
 
         # Make z orthogonal to both x and y
         z_vec = np.cross(x_vec, y_vec)
         z_vec = normalize_vector(z_vec)
-        check_array_validity(z_vec, "normalized_z_vec")
 
         return x_vec, y_vec, z_vec
 
     def _get_stable_coord_frame(self, hand_coords):
         """Create a more stable coordinate frame using multiple hand landmarks"""
         try:
-            # Check input validity
             if not check_array_validity(hand_coords, "hand_coords_stable_frame"):
-                logger.error("Invalid hand coordinates for stable frame calculation")
                 return [np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])]
-            
-            # Check individual keypoints before calculations
+
             wrist = hand_coords[self.wrist_idx]
-            index_pos = hand_coords[self.index_knuckle_idx]
-            pinky_pos = hand_coords[self.pinky_knuckle_idx]
-            middle_pos = hand_coords[self.middle_knuckle_idx]
-            
             if contains_nan(wrist):
-                logger.error(
-                    f"WRIST position contains NaN: {wrist}. "
-                    f"Keypoint indices: wrist={self.wrist_idx}, index={self.index_knuckle_idx}, "
-                    f"pinky={self.pinky_knuckle_idx}, middle={self.middle_knuckle_idx}"
-                )
-                logger.error(f"Full hand_coords shape: {hand_coords.shape}, sample coords:\n{hand_coords[:5]}")
                 return [np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])]
-            
-            if contains_nan(index_pos):
-                logger.error(f"INDEX knuckle position contains NaN: {index_pos}")
+            if contains_nan(hand_coords[self.index_knuckle_idx]):
                 return [np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])]
-            
-            if contains_nan(pinky_pos):
-                logger.error(f"PINKY knuckle position contains NaN: {pinky_pos}")
+            if contains_nan(hand_coords[self.pinky_knuckle_idx]):
                 return [np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])]
-            
-            if contains_nan(middle_pos):
-                logger.error(f"MIDDLE knuckle position contains NaN: {middle_pos}")
+            if contains_nan(hand_coords[self.middle_knuckle_idx]):
                 return [np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])]
-            
+
             v1 = hand_coords[self.index_knuckle_idx] - wrist
             v2 = hand_coords[self.pinky_knuckle_idx] - wrist
             v3 = hand_coords[self.middle_knuckle_idx] - wrist
 
-            # Check vector calculations
-            if not check_array_validity(v1, "v1_index_knuckle"):
-                logger.error("Invalid v1 vector (index knuckle)")
-            if not check_array_validity(v2, "v2_pinky_knuckle"):
-                logger.error("Invalid v2 vector (pinky knuckle)")
-            if not check_array_validity(v3, "v3_middle_knuckle"):
-                logger.error("Invalid v3 vector (middle knuckle)")
-
-            # Calculate frame vectors using multiple references
             cross_v1_v3 = np.cross(v1, v3)
-            palm_normal = normalize_vector(cross_v1_v3)  # Z direction
-
-            avg_direction = (v1 + v2 + v3) / 3
-            palm_direction = normalize_vector(avg_direction)  # Y direction
-
-            cross_palm = np.cross(palm_direction, palm_normal)
-            cross_product = normalize_vector(cross_palm)  # X direction
-
-            # Log if any normalization step produced invalid results
+            palm_normal = normalize_vector(cross_v1_v3)
             if not check_array_validity(palm_normal, "palm_normal"):
-                logger.warning("Palm normal normalization produced invalid values, using fallback")
                 palm_normal = np.array([0.0, 0.0, 1.0])
 
+            avg_direction = (v1 + v2 + v3) / 3
+            palm_direction = normalize_vector(avg_direction)
             if not check_array_validity(palm_direction, "palm_direction"):
-                logger.warning("Palm direction normalization produced invalid values, using fallback")
                 palm_direction = np.array([0.0, 1.0, 0.0])
 
+            cross_product = normalize_vector(np.cross(palm_direction, palm_normal))
             if not check_array_validity(cross_product, "cross_product"):
-                logger.warning("Cross product normalization produced invalid values, using fallback")
                 cross_product = np.array([1.0, 0.0, 0.0])
 
-            # Orthogonalize explicitly to ensure a valid rotation matrix
             x_vec, y_vec, z_vec = self._orthogonalize_frame(cross_product, palm_direction, palm_normal)
-
-            # Return as a list of vectors for compatibility with existing code
             return [x_vec, y_vec, z_vec]
 
         except Exception as e:
@@ -360,45 +283,22 @@ class TransformHandPositionCoords(Component):
     def _get_stable_hand_dir_frame(self, hand_coords):
         """Create a more stable frame for hand direction using multiple landmarks"""
         try:
-            # Check input validity
             if not check_array_validity(hand_coords, "hand_coords_dir_frame"):
-                logger.error("Invalid hand coordinates for direction frame calculation")
-                return [
-                    np.array([0.0, 0.0, 0.0]),
-                    np.array([1.0, 0.0, 0.0]),
-                    np.array([0.0, 1.0, 0.0]),
-                    np.array([0.0, 0.0, 1.0]),
-                ]
-            
-            # Check individual keypoints before calculations
+                return [np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]),
+                        np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])]
+
             wrist = hand_coords[self.wrist_idx]
-            index_pos = hand_coords[self.index_knuckle_idx]
-            pinky_pos = hand_coords[self.pinky_knuckle_idx]
-            middle_pos = hand_coords[self.middle_knuckle_idx]
-            
             if contains_nan(wrist):
-                logger.error(
-                    f"DIR FRAME - WRIST position contains NaN: {wrist}. "
-                    f"Keypoint indices: wrist={self.wrist_idx}, index={self.index_knuckle_idx}, "
-                    f"pinky={self.pinky_knuckle_idx}, middle={self.middle_knuckle_idx}"
-                )
-                logger.error(f"DIR FRAME - Full hand_coords shape: {hand_coords.shape}, sample coords:\n{hand_coords[:5]}")
-                return [np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]), 
+                return [np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]),
                         np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])]
-            
-            if contains_nan(index_pos):
-                logger.error(f"DIR FRAME - INDEX knuckle position contains NaN: {index_pos}")
-                return [np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]), 
+            if contains_nan(hand_coords[self.index_knuckle_idx]):
+                return [np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]),
                         np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])]
-            
-            if contains_nan(pinky_pos):
-                logger.error(f"DIR FRAME - PINKY knuckle position contains NaN: {pinky_pos}")
-                return [np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]), 
+            if contains_nan(hand_coords[self.pinky_knuckle_idx]):
+                return [np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]),
                         np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])]
-            
-            if contains_nan(middle_pos):
-                logger.error(f"DIR FRAME - MIDDLE knuckle position contains NaN: {middle_pos}")
-                return [np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]), 
+            if contains_nan(hand_coords[self.middle_knuckle_idx]):
+                return [np.array([0.0, 0.0, 0.0]), np.array([1.0, 0.0, 0.0]),
                         np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])]
 
             wrist = wrist.copy()
@@ -406,51 +306,24 @@ class TransformHandPositionCoords(Component):
             v2 = hand_coords[self.pinky_knuckle_idx] - wrist
             v3 = hand_coords[self.middle_knuckle_idx] - wrist
 
-            # Check vector calculations
-            if not check_array_validity(v1, "v1_direction"):
-                logger.error("Invalid v1 vector in direction frame")
-            if not check_array_validity(v2, "v2_direction"):
-                logger.error("Invalid v2 vector in direction frame")
-            if not check_array_validity(v3, "v3_direction"):
-                logger.error("Invalid v3 vector in direction frame")
-            if not check_array_validity(wrist, "wrist_position"):
-                logger.error("Invalid wrist position in direction frame")
-
-            # Calculate frame vectors using multiple references
-            cross_v1_v3 = np.cross(v1, v3)
-            palm_normal = normalize_vector(cross_v1_v3)
-
-            avg_direction = (v1 + v2 + v3) / 3
-            palm_direction = normalize_vector(avg_direction)
-
-            cross_palm = np.cross(palm_direction, palm_normal)
-            cross_product = normalize_vector(cross_palm)
-
-            # Validate normalized vectors
+            palm_normal = normalize_vector(np.cross(v1, v3))
             if not check_array_validity(palm_normal, "palm_normal_dir"):
-                logger.warning("Palm normal normalization failed in direction frame, using fallback")
                 palm_normal = np.array([0.0, -1.0, 0.0])
 
+            palm_direction = normalize_vector((v1 + v2 + v3) / 3)
             if not check_array_validity(palm_direction, "palm_direction_dir"):
-                logger.warning("Palm direction normalization failed in direction frame, using fallback")
                 palm_direction = np.array([0.0, 0.0, 1.0])
 
+            cross_product = normalize_vector(np.cross(palm_direction, palm_normal))
             if not check_array_validity(cross_product, "cross_product_dir"):
-                logger.warning("Cross product normalization failed in direction frame, using fallback")
                 cross_product = np.array([1.0, 0.0, 0.0])
 
-            # Orthogonalize explicitly
             x_vec, y_vec, z_vec = self._orthogonalize_frame(cross_product, palm_normal, palm_direction)
-
-            # Validate final frame vectors
             if not check_array_validity(x_vec, "x_vec_final"):
-                logger.warning("Final x_vector invalid, resetting to basis")
                 x_vec = np.array([1.0, 0.0, 0.0])
             if not check_array_validity(y_vec, "y_vec_final"):
-                logger.warning("Final y_vector invalid, resetting to basis")
                 y_vec = np.array([0.0, 1.0, 0.0])
             if not check_array_validity(z_vec, "z_vec_final"):
-                logger.warning("Final z_vector invalid, resetting to basis")
                 z_vec = np.array([0.0, 0.0, 1.0])
 
             return [wrist, x_vec, y_vec, z_vec]
@@ -472,9 +345,7 @@ class TransformHandPositionCoords(Component):
         - Hand direction frame (4,3) - Coordinate frame vectors for "VR frame"
         """
         try:
-            # Check input validity
             if not check_array_validity(hand_coords, "hand_coords_transform"):
-                logger.error("Invalid hand coordinates in transform_keypoints")
                 return np.zeros_like(hand_coords), [
                     np.array([0.0, 0.0, 0.0]),
                     np.array([1.0, 0.0, 0.0]),
@@ -483,9 +354,7 @@ class TransformHandPositionCoords(Component):
                 ]
 
             translated_coords = copy(hand_coords) - hand_coords[0]
-
             if not check_array_validity(translated_coords, "translated_coords"):
-                logger.error("Translated coordinates contain invalid values")
                 return np.zeros_like(hand_coords), [
                     np.array([0.0, 0.0, 0.0]),
                     np.array([1.0, 0.0, 0.0]),
@@ -493,57 +362,25 @@ class TransformHandPositionCoords(Component):
                     np.array([0.0, 0.0, 1.0]),
                 ]
 
-            # Use the new, more stable coordinate frame method
             original_coord_frame = self._get_stable_coord_frame(translated_coords)
-
-            # Validate coordinate frame
-            coord_frame_array = np.array(original_coord_frame)
-            if not check_array_validity(coord_frame_array, "original_coord_frame"):
-                logger.warning("Original coordinate frame contains invalid values, using identity")
+            if not check_array_validity(np.array(original_coord_frame), "original_coord_frame"):
                 original_coord_frame = [np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]), np.array([0.0, 0.0, 1.0])]
-                coord_frame_array = np.array(original_coord_frame)
 
-            # Finding the rotation matrix and rotating the coordinates
             coord_frame_stack = np.stack(original_coord_frame, axis=1)
-
             try:
                 rotation_matrix = np.linalg.solve(coord_frame_stack, np.eye(3)).T
-
                 if not check_array_validity(rotation_matrix, "rotation_matrix"):
-                    logger.error("Rotation matrix contains NaN/Inf values")
-                    # Use identity matrix as fallback
                     rotation_matrix = np.eye(3)
-
-                # Log matrix condition number to detect ill-conditioned matrices
-                cond_number = np.linalg.cond(rotation_matrix)
-                if cond_number > 1e10:
-                    logger.warning(f"Rotation matrix is ill-conditioned. Condition number: {cond_number:.2e}")
-
-            except np.linalg.LinAlgError as e:
-                logger.error(f"Singular matrix in transform_keypoints: {e}")
-                rotation_matrix = np.eye(3)
-            except Exception as e:
-                logger.error(f"Unexpected error computing rotation matrix: {e}", exc_info=True)
+            except (np.linalg.LinAlgError, Exception):
                 rotation_matrix = np.eye(3)
 
             transformed_keypoints = (rotation_matrix @ translated_coords.T).T
-
             if not check_array_validity(transformed_keypoints, "transformed_keypoints"):
-                logger.error("Transformed keypoints contain invalid values, using translated coords as fallback")
                 transformed_keypoints = translated_coords
 
-            # Use the new, more stable hand direction frame method
             coordinate_frame = self._get_stable_hand_dir_frame(hand_coords)
-
-            # Validate coordinate frame result
-            frame_valid = True
-            for i, vec in enumerate(coordinate_frame):
-                if not check_array_validity(vec, f"coordinate_frame_vec_{i}"):
-                    frame_valid = False
-                    logger.warning(f"Coordinate frame vector {i} contains invalid values")
-
+            frame_valid = all(check_array_validity(v, f"coordinate_frame_vec_{i}") for i, v in enumerate(coordinate_frame))
             if not frame_valid:
-                logger.warning("Reconstructing coordinate frame with fallback values")
                 coordinate_frame = [
                     hand_coords[0].copy(),
                     np.array([1.0, 0.0, 0.0]),
@@ -584,11 +421,7 @@ class TransformHandPositionCoords(Component):
 
                 data_type, hand_coords = self._get_hand_coords()
 
-                # If no data was available just continue the loop
                 if hand_coords is None or data_type is None:
-                    # Todo: is this neccessary
-                    if frame_count % 100 == 0:
-                        logger.debug(f"Frame {frame_count}: No data available")
                     self.timer.end_loop()
                     continue
 
@@ -598,9 +431,7 @@ class TransformHandPositionCoords(Component):
                     coordinate_frame,
                 ) = self.transform_keypoints(hand_coords)
 
-                # Validate transformation results
                 if not check_array_validity(transformed_keypoints, "transformed_keypoints_after_transform"):
-                    logger.error(f"Frame {frame_count}: Transformed keypoints are invalid")
                     error_count += 1
                     self.timer.end_loop()
                     if error_count >= max_errors:
@@ -608,59 +439,40 @@ class TransformHandPositionCoords(Component):
                         break
                     continue
 
-                # Passing the transformed coords into a moving average
                 self.averaged_keypoints = moving_average(
                     transformed_keypoints,
                     self.coord_moving_average_queue,
                     self.moving_average_limit,
                 )
-
-                # Apply moving average to frame vectors
                 self.averaged_coordinate_frame = moving_average(
                     coordinate_frame,
                     self.frame_moving_average_queue,
                     self.moving_average_limit,
                 )
 
-                # Ensure frame vectors remain orthogonal regardless of data type
-                # Keep origin point as is
                 origin = self.averaged_coordinate_frame[0]
-
-                # Check origin validity
                 if contains_nan(origin):
-                    logger.warning(f"Frame {frame_count}: Origin contains NaN, using hand_coords[0] as fallback")
                     origin = hand_coords[0].copy()
 
-                # Extract the rotation vectors
                 x_vec = normalize_vector(self.averaged_coordinate_frame[1])
                 y_vec = normalize_vector(self.averaged_coordinate_frame[2])
                 z_vec = normalize_vector(self.averaged_coordinate_frame[3])
 
-                # Check if normalization produced valid results
                 if contains_nan(x_vec) or contains_nan(y_vec) or contains_nan(z_vec):
-                    logger.warning(
-                        f"Frame {frame_count}: Frame vectors contain NaN after normalization, using fallback"
-                    )
                     x_vec = np.array([1.0, 0.0, 0.0])
                     y_vec = np.array([0.0, 1.0, 0.0])
                     z_vec = np.array([0.0, 0.0, 1.0])
 
-                # Re-orthogonalize the frame
                 x_vec, y_vec, z_vec = self._orthogonalize_frame(x_vec, y_vec, z_vec)
 
-                # Validate re-orthogonalization results
                 if contains_nan(x_vec) or contains_nan(y_vec) or contains_nan(z_vec):
-                    logger.error(f"Frame {frame_count}: Failed to produce valid orthogonal frame")
                     x_vec = np.array([1.0, 0.0, 0.0])
                     y_vec = np.array([0.0, 1.0, 0.0])
                     z_vec = np.array([0.0, 0.0, 1.0])
 
-                # Reconstruct orthogonal frame
                 self.averaged_coordinate_frame = [origin, x_vec, y_vec, z_vec]
 
-                # Validate averaged keypoints
                 if not check_array_validity(self.averaged_keypoints, "averaged_keypoints"):
-                    logger.error(f"Frame {frame_count}: Averaged keypoints are invalid")
                     error_count += 1
                     self.timer.end_loop()
                     if error_count >= max_errors:
@@ -676,9 +488,7 @@ class TransformHandPositionCoords(Component):
                     frame_vectors=self.averaged_coordinate_frame,
                 )
 
-                # Validate data before publishing
                 if not check_array_validity(data.keypoints, "published_keypoints"):
-                    logger.error(f"Frame {frame_count}: Keypoints to publish are invalid")
                     error_count += 1
                     self.timer.end_loop()
                     if error_count >= max_errors:

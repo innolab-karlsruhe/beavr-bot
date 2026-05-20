@@ -31,7 +31,6 @@ from beavr.teleop.components.operator.operator_types import CartesianTarget
 from beavr.teleop.configs.constants import robots
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.ERROR)
 
 
 def get_urdf_from_ros_topic(timeout_sec: float = 5.0) -> str:

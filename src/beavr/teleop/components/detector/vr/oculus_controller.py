@@ -95,6 +95,13 @@ class OculusVRControllerDetector(Component):
                     frame_vectors = tuple(map(tuple, self._frame_from_quat(pos, quat).tolist()))
                     gripper_width_m = self._trigger_to_width(trigger)
 
+                    logger.debug(
+                        f"[{side}] mode={mode} "
+                        f"pos=({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}) "
+                        f"quat=({quat[0]:.3f}, {quat[1]:.3f}, {quat[2]:.3f}, {quat[3]:.3f}) "
+                        f"trigger={trigger:.3f} gripper_width={gripper_width_m*1000:.1f}mm"
+                    )
+
                     input_frame = InputFrame(
                         timestamp_s=time.time(),
                         hand_side=side,

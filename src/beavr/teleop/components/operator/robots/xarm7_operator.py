@@ -28,7 +28,6 @@ from beavr.teleop.components.operator.operator_types import CartesianTarget, Gri
 from beavr.teleop.configs.constants import robots
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.ERROR)
 
 
 class XArmOperator(Operator):
@@ -250,9 +249,22 @@ class XArmOperator(Operator):
         self._handshake_coordinator = HandshakeCoordinator.get_instance()
         self._handshake_server_id = f"{operator_name}_handshake"
 
-        # Start handshake server for this operator with unique port
-        # Use operator name hash to avoid port conflicts
-        operator_port_offset = hash(operator_name) % 100
+        # Start handshake server for this operator with unique port.
+        # Use a deterministic lookup table rather than Python's hash() which is
+        # randomised per-process (PYTHONHASHSEED) and can collide modulo 100.
+        # Existing robot-interface handshake ports: right=8159, left=8160.
+        _OPERATOR_HANDSHAKE_PORT_OFFSETS = {
+            "openarm_left_operator":  11,   # → 8161
+            "openarm_right_operator": 12,   # → 8162
+            "xarm7_left_operator":    21,   # → 8171
+            "xarm7_right_operator":   22,   # → 8172
+        }
+        operator_port_offset = _OPERATOR_HANDSHAKE_PORT_OFFSETS.get(
+            operator_name,
+            # Deterministic fallback for unknown names: sum of ordinals, offset to
+            # avoid the reserved 0-30 range used by known operators/robots.
+            (sum(ord(c) for c in operator_name) % 50) + 50,
+        )
         handshake_port = robots.TELEOP_HANDSHAKE_PORT + operator_port_offset
 
         try:
@@ -323,8 +335,18 @@ class XArmOperator(Operator):
             else None
         )
         data = self._pick_fresher(hand_data, ctrl_data)
-        if data is not None and data.keypoints:
-            logger.debug(f"Received data from subscriber: has nan {math.isnan(data.keypoints[0][0])}")
+
+        source = "none"
+        if data is hand_data and hand_data is not None:
+            source = "hand"
+        elif data is ctrl_data and ctrl_data is not None:
+            source = "controller"
+
+        logger.debug(
+            f"[{self.operator_name}] _get_hand_frame: hand={'yes' if hand_data else 'no'} "
+            f"ctrl={'yes' if ctrl_data else 'no'} selected={source} "
+            f"frame_vectors={'yes' if data is not None and data.frame_vectors is not None else 'no'}"
+        )
 
         if data is not None:
             # Process new data - expect InputFrame object with frame_vectors
@@ -334,8 +356,13 @@ class XArmOperator(Operator):
                     # Convert from Tuple[Tuple[float, float, float], ...] to numpy array (4, 3)
                     frame_data = np.array(data.frame_vectors, dtype=np.float64).reshape(4, 3)
                     self.last_valid_hand_frame = frame_data  # Cache the new valid frame
-                    logger.debug(f"Created frame_data shape: {frame_data.shape}")
+                    logger.debug(
+                        f"[{self.operator_name}] frame accepted from {source}: "
+                        f"origin=({frame_data[0,0]:.3f}, {frame_data[0,1]:.3f}, {frame_data[0,2]:.3f})"
+                    )
                     return frame_data
+                else:
+                    logger.debug(f"[{self.operator_name}] data from {source} has no frame_vectors, skipping")
 
             except Exception as e:
                 logger.error(f"Error processing InputFrame data: {e}")
@@ -653,7 +680,7 @@ class XArmOperator(Operator):
             )
             return self._gripper_width
 
-        if coords_data.keypoints is None:
+        if coords_data.keypoints is None or len(coords_data.keypoints) == 0:
             return getattr(self, "_gripper_width", robots.OPENARM_GRIPPER_MIN_WIDTH_M)
 
         # Convert keypoints to numpy array and get thumb and index finger tip positions
@@ -706,8 +733,11 @@ class XArmOperator(Operator):
 
         # Decide whether we should publish commands this cycle
         publish_commands = self.arm_teleop_state == robots.ARM_TELEOP_CONT
-        if not publish_commands:
-            logger.debug(f"Teleop state is STOP ({self.arm_teleop_state}), skipping command publication")
+
+        logger.debug(
+            f"[{self.operator_name}] state={self.arm_teleop_state} "
+            f"needs_reset={needs_reset} publish={publish_commands}"
+        )
 
         # 2. Handle Reset Condition
         if needs_reset:
@@ -871,13 +901,17 @@ class XArmOperator(Operator):
             ),
         )
 
+        logger.debug(
+            f"[{self.operator_name}] cartesian_cmd: "
+            f"pos=({cartesian_cmd.position_m[0]:.4f}, {cartesian_cmd.position_m[1]:.4f}, {cartesian_cmd.position_m[2]:.4f}) "
+            f"quat=({cartesian_cmd.orientation_xyzw[0]:.3f}, {cartesian_cmd.orientation_xyzw[1]:.3f}, "
+            f"{cartesian_cmd.orientation_xyzw[2]:.3f}, {cartesian_cmd.orientation_xyzw[3]:.3f}) "
+            f"publishing={publish_commands}"
+        )
+
         # Publish only if tele-operation is in CONT mode
         if publish_commands:
             try:
-                # TODO: Remove the literal in the topic arg use a constant.
-                logger.debug(
-                    f"Publishing command to {self._publisher_host}:{self._publisher_port}: pos={cartesian_cmd.position_m[:3]}, orient={cartesian_cmd.orientation_xyzw}"
-                )
                 self._publisher_manager.publish(
                     host=self._publisher_host,
                     port=self._publisher_port,
