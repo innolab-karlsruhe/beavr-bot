@@ -462,7 +462,9 @@ class OculusVRHandDetector(Component):
 
     def stream(self):
         """Main streaming loop for unified VR hand detection."""
-
+        # TODO remove creation of the hand tracking service, if controllers are used
+        return
+    
         # Mock mode: replay recorded data
         if self.use_mock_mode:
             logger.info(f"📼 Starting MOCK mode - replaying from {self.mock_data_path}")

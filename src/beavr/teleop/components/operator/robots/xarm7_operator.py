@@ -48,9 +48,6 @@ class XArmOperator(Operator):
         endeff_publish_port: int,
         endeff_subscribe_port: int,
         moving_average_limit: int,
-        h_r_v: np.ndarray,  # Transformation matrix Robot base to VR base
-        h_t_v: np.ndarray,  # Transformation matrix Hand Tracking base to VR base
-        final_translation : np.ndarray, # Final matrix to match robot base
         use_filter: bool = True,
         arm_resolution_port: Optional[int] = None,
         teleoperation_state_port: Optional[int] = None,
@@ -70,8 +67,6 @@ class XArmOperator(Operator):
             endeff_publish_port: Port for publishing end-effector commands.
             endeff_subscribe_port: Port for subscribing to end-effector state.
             moving_average_limit: Number of samples for moving average filter (currently unused).
-            h_r_v: 4x4 Homogeneous transformation matrix from Robot base frame to VR base frame.
-            h_t_v: 4x4 Homogeneous transformation matrix from Hand Tracking base frame to VR base frame.
             use_filter: Whether to enable the complementary state filter.
             arm_resolution_port: Optional port for arm resolution control messages.
             teleoperation_state_port: Optional port for teleoperation reset/pause messages.
@@ -83,10 +78,6 @@ class XArmOperator(Operator):
         self.hand_side = hand_side
         self.notify_component_start(self.operator_name)
         self._host, self._port = host, transformed_keypoints_port
-
-        # Transformation matrices specific to the arm setup
-        self.h_r_v = h_r_v
-        self.h_t_v = h_t_v
 
         # Initialize ZMQ context and subscribers
         self._context = get_global_context()
@@ -208,9 +199,6 @@ class XArmOperator(Operator):
         self.hand_moving_h: Optional[np.ndarray] = None
         self.hand_init_t: Optional[np.ndarray] = None
         self.last_valid_hand_frame: Optional[np.ndarray] = None  # Cache for last received hand frame
-
-        # Final transformation
-        self.final_translation = final_translation
 
         # Filter setup
         self.use_filter = use_filter
@@ -771,87 +759,44 @@ class XArmOperator(Operator):
             logger.error(f"Error ({self.operator_name}): Could not convert moving hand frame: {e}")
             return  # Skip cycle if conversion fails
 
-        # 5. Calculate Relative Transformation
-        # H_HT_HI = H_HI_HH^-1 * H_HT_HH
-        # Use solve for potentially better numerical stability than inv
-        #try:
-        #h_hi_hh_inv = np.linalg.inv(self.hand_init_h)  # Inverse of initial hand pose
-        #h_ht_hi = self.hand_moving_h @ h_hi_hh_inv  # Relative motion of hand w.r.t its start pos
-
+        # 5. Compute relative hand motion in hand-tracking frame.
         t_init = self.hand_init_h[:3, 3]
-        t_cur = self.hand_moving_h[:3, 3]
-        dt_world = t_cur - t_init
-
-        dt_world = np.array([
-            dt_world[2],
-            dt_world[0],
-            -dt_world[1]
-        ])
-
+        t_cur  = self.hand_moving_h[:3, 3]
         R_init = self.hand_init_h[:3, :3]
-        R_cur = self.hand_moving_h[:3, :3]
-        R_rel_world = R_cur @ R_init.T
+        R_cur  = self.hand_moving_h[:3, :3]
 
         h_ht_hi = np.eye(4)
-        h_ht_hi[:3, :3] = R_rel_world
-        h_ht_hi[:3, 3] = dt_world
+        h_ht_hi[:3, :3] = R_cur @ R_init.T  # relative rotation in hand-tracking frame
+        h_ht_hi[:3, 3]  = t_cur - t_init    # relative translation in hand-tracking frame
 
-            # Alternative using solve: H_HT_HI = np.linalg.solve(self.hand_init_H, self.hand_moving_H)
-        #except np.linalg.LinAlgError:
-        #    logger.error(f"Error ({self.operator_name}): Could not invert initial hand matrix. Resetting.")
-        #    self.is_first_frame = True
-        #    return
+        np.set_printoptions(
+            precision=3,      # 3 digits after decimal point
+            suppress=True,    # avoid scientific notation for small numbers
+            linewidth=10_000  # prevent line breaks
+        )
 
-        # 6. Apply Coordinate Transformations (using provided H_R_V and H_T_V)
-        # Transform relative hand motion from Hand Tracking frame (T) to Robot base frame (R)
-        # Formula: H_RT_RI = H_R_V * H_V_T * H_HT_HI * H_T_V * H_V_R
-        # Where H_V_T = inv(H_T_V), H_V_R = inv(H_R_V)
-        # Simplified: Relative motion in Robot frame = inv(H_R_V) * H_T_V * H_HT_HI * inv(H_T_V) * H_R_V
-        # Let's verify the original logic's intent. It seems to separate rotation and translation transforms.
-        # H_HT_HI_r = inv(H_R_V)[:3,:3] @ H_HT_HI[:3,:3] @ H_R_V[:3,:3] # Rotation part transformed
-        # H_HT_HI_t = inv(H_T_V)[:3,:3] @ H_HT_HI[:3,3] # Translation part transformed (assuming H_T_V only affects translation origin/scaling?)
+        # 6. Map relative motion to robot base frame via a single similarity transform.
+        relative_affine_in_robot_frame = h_ht_hi
+        relative_affine_in_robot_frame[:3, :3] = self.project_to_rotation_matrix(
+            relative_affine_in_robot_frame[:3, :3]
+        )
+        
+        # 7. Calculate target robot pose.
+        h_rt_rh = np.eye(4)                                                                                                                
+        h_rt_rh[:3, :3] = relative_affine_in_robot_frame[:3, :3] @ self.robot_init_h[:3, :3]                                               
+        h_rt_rh[:3, 3]  = self.robot_init_h[:3, 3] + relative_affine_in_robot_frame[:3, 3]
 
-        # Let's stick to the original separate transformation logic for now, using self.h_r_v and self.h_t_v
-        try:
-            h_r_v_inv = np.linalg.inv(self.h_r_v)
-            h_t_v_inv = np.linalg.inv(self.h_t_v)
-
-            # Transform rotation part: Apply rotation from H_R_V inverse, then relative hand rotation, then H_R_V
-            h_ht_hi_r = h_r_v_inv[:3, :3] @ h_ht_hi[:3, :3] @ self.h_r_v[:3, :3]
-            # Transform translation part: Apply H_T_V inverse to relative hand translation
-            # Scale translation by resolution_scale
-            h_ht_hi_t = h_t_v_inv[:3, :3] @ h_ht_hi[:3, 3] #* self.resolution_scale
-
-        except np.linalg.LinAlgError:
-            logger.error(f"Error ({self.operator_name}): Could not invert H_R_V or H_T_V matrix.")
-            # Handle error appropriately, maybe reset or use identity
-            return
-
-        # Ensure rotation part is a valid rotation matrix
-        h_ht_hi_r = self.project_to_rotation_matrix(h_ht_hi_r)
-
-        # Combine into a relative affine transformation in the robot's base frame
-        relative_affine_in_robot_frame = np.eye(4)
-        relative_affine_in_robot_frame[:3, :3] = h_ht_hi_r
-        relative_affine_in_robot_frame[:3, 3] = h_ht_hi_t
-
-        # 7. Calculate Target Robot Pose
-        # H_RT_RH = H_RI_RH * relative_affine_in_robot_frame
-        h_rt_rh = self.robot_init_h @ relative_affine_in_robot_frame
-
-        # Ensure the final target pose has a valid rotation matrix
+        # Ensure the final target pose has a valid rotation matrix.
         h_rt_rh[:3, :3] = self.project_to_rotation_matrix(h_rt_rh[:3, :3])
 
-        # 7A. Apply matrices to match the target robot coordinate system
-        h_rt_rh[:3, 3] = (self.final_translation @ np.r_[h_rt_rh[:3, 3], 1.0])[:3]
-
-        self.robot_moving_h = copy(h_rt_rh)  # Store the calculated target pose
+        # Store the calculated target pose
+        self.robot_moving_h = copy(h_rt_rh)  
 
         # Log positions for debugging
         logger.debug(
             f"{self.operator_name} - robot_init_h pos: {self.robot_init_h[:3, 3]}, "
             f"robot_moving_h pos: {self.robot_moving_h[:3, 3]}, "
-            f"current translation: {h_ht_hi_t}"
+            f"relative translation (robot frame): {relative_affine_in_robot_frame[:3, 3]}"
         )
 
         # 8. Convert Target Pose to Cartesian [pos, quat]
@@ -960,18 +905,8 @@ class XArmOperator(Operator):
                     nan_matrices.append("hand_moving_h")
                 if self.robot_moving_h is None or self._contains_nan(self.robot_moving_h):
                     nan_matrices.append("robot_moving_h")
-                if h_hi_hh_inv is None or self._contains_nan(h_hi_hh_inv):
-                    nan_matrices.append("h_hi_hh_inv")
                 if h_ht_hi is None or self._contains_nan(h_ht_hi):
                     nan_matrices.append("h_ht_hi")
-                if h_r_v_inv is None or self._contains_nan(h_r_v_inv):
-                    nan_matrices.append("h_r_v_inv")
-                if h_t_v_inv is None or self._contains_nan(h_t_v_inv):
-                    nan_matrices.append("h_t_v_inv")
-                if h_ht_hi_r is None or self._contains_nan(h_ht_hi_r):
-                    nan_matrices.append("h_ht_hi_r")
-                if h_ht_hi_t is None or self._contains_nan(h_ht_hi_t):
-                    nan_matrices.append("h_ht_hi_t")
                 if relative_affine_in_robot_frame is None or self._contains_nan(relative_affine_in_robot_frame):
                     nan_matrices.append("relative_affine_in_robot_frame")
                 if cart_target_raw is None or self._contains_nan(cart_target_raw):
@@ -985,12 +920,8 @@ class XArmOperator(Operator):
                         hand_init_h=self.hand_init_h,
                         robot_init_h=self.robot_init_h,
                         hand_moving_h=self.hand_moving_h,
-                        h_hi_hh_inv=h_hi_hh_inv,
                         h_ht_hi=h_ht_hi,
-                        h_r_v_inv=h_r_v_inv,
-                        h_t_v_inv=h_t_v_inv,
-                        h_ht_hi_r=h_ht_hi_r,
-                        h_ht_hi_t=h_ht_hi_t,
+                        T_coord=self._T_coord,
                         relative_affine=relative_affine_in_robot_frame,
                         robot_moving_h=self.robot_moving_h,
                         cart_target_raw=cart_target_raw,

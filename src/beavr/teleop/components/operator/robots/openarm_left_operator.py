@@ -7,35 +7,6 @@ from beavr.teleop.configs.constants import robots
 from .xarm7_operator import XArmOperator
 
 
-# Combined: axis swap with Z inversion correction
-H_R_V_LEFT =  np.array(
-    [
-        [0.0, -1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [-1.0, 0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-)
-
-H_T_V_LEFT = np.array(
-    [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-)
-
-# Conversion into robot coordinate system
-# Translation: Flip z values and rotate around z axis (-90deg)
-TRANSLATION_TO_ROBOT_LEFT = np.array([
-    [1,  0,  0,  0],
-    [0,  1,  0,  0],
-    [0,  0,  1,  0],
-    [0,  0,  0,  1]
-])
-
-
 class OpenArmLeftOperator(XArmOperator):
     def __init__(
         self,
@@ -61,9 +32,6 @@ class OpenArmLeftOperator(XArmOperator):
             endeff_publish_port=endeff_publish_port,
             endeff_subscribe_port=endeff_subscribe_port,
             moving_average_limit=moving_average_limit,
-            h_r_v=H_R_V_LEFT,
-            h_t_v=H_T_V_LEFT,
-            final_translation=TRANSLATION_TO_ROBOT_LEFT,
             use_filter=use_filter,
             arm_resolution_port=arm_resolution_port,
             teleoperation_state_port=teleoperation_state_port,
