@@ -91,7 +91,19 @@ class OculusVRControllerDetector(Component):
                     pos, quat, trigger, mode = self._parse(raw)
                     if pos is None:
                         continue
-                    pos, quat = self._rotate_90_around_x(pos, quat)
+
+                    # Bring controller pose into robot coordinate system.
+                    T = np.array([[0., 0., 1.],                          
+                                  [-1., 0., 0.],                                        
+                                  [ 0., 1., 0.]])                                       
+    
+                    x, y, z = pos                                                                                                                      
+                    pos = (z, -x, y)                                                                                                                   
+                                                                                                                                                        
+                    R_orig = Rotation.from_quat(np.asarray(quat, dtype=np.float64)).as_matrix()                                                        
+                    R_new = T @ R_orig @ T.T                                                                                                           
+                    quat = tuple(Rotation.from_matrix(R_new).as_quat())  # xyzw
+
                     frame_vectors = tuple(map(tuple, self._frame_from_quat(pos, quat).tolist()))
                     gripper_width_m = self._trigger_to_width(trigger)
 
