@@ -92,7 +92,8 @@ class OpenArmGripperController:
             return False
 
         # Clamp width to gripper limits
-        clamped_width = max(self.min_width, min(command.width_m, self.max_width))
+        scaled_width = (command.width_m - 0.015) * 1.5
+        clamped_width = max(self.min_width, min(scaled_width, self.max_width))
 
         goal_msg = GripperCommandAction.Goal()
         goal_msg.command.position = clamped_width

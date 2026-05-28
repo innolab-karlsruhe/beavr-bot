@@ -24,6 +24,7 @@ from beavr.teleop.components.detector.detector_types import InputFrame
 from beavr.teleop.configs.constants import robots
 
 logger = logging.getLogger(__name__)
+logger.level = logging.WARNING
 
 
 class OculusVRControllerDetector(Component):
