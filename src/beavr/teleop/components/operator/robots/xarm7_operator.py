@@ -1,5 +1,6 @@
 import logging
 import math
+import threading
 import time
 from copy import deepcopy as copy
 from typing import Any, Dict, Optional
@@ -28,6 +29,7 @@ from beavr.teleop.components.operator.operator_types import CartesianTarget, Gri
 from beavr.teleop.configs.constants import robots
 
 logger = logging.getLogger(__name__)
+logger.level = logging.WARNING
 
 
 class XArmOperator(Operator):
@@ -233,6 +235,21 @@ class XArmOperator(Operator):
         else:
             self.pose_logger = None
 
+        # Pedal-gated initial reset: block _apply_retargeted_angles until the
+        # pedal is pressed for the first time so that the baseline (hand_init_h /
+        # robot_init_h) is captured at the moment the operator actually wants to
+        # start moving, not at system startup.
+        self._waiting_for_first_pedal = True
+        self._pedal_lock = threading.Lock()
+
+        # Try to subscribe to /pedal_pressed via ROS2.  If ROS2 is not
+        # available in this process the flag is cleared immediately so the
+        # operator falls back to the original "reset on startup" behaviour.
+        self._pedal_ros2_node = None
+        self._pedal_executor = None
+        self._pedal_spin_thread = None
+        self._init_pedal_subscriber()
+
         # Initialize handshake coordination for this operator
         self._handshake_coordinator = HandshakeCoordinator.get_instance()
         self._handshake_server_id = f"{operator_name}_handshake"
@@ -288,6 +305,70 @@ class XArmOperator(Operator):
     def return_real(self) -> bool:
         """Returns whether the operator is controlling a real robot (placeholder)."""
         return self.real
+
+    # ------------------------------------------------------------------
+    # Pedal-gated initial reset
+    # ------------------------------------------------------------------
+    def _init_pedal_subscriber(self) -> None:
+        """Subscribe to /pedal_pressed via ROS2 in a background thread.
+
+        If ROS2 is unavailable the waiting flag is cleared so the operator
+        behaves as before (reset on startup).
+        """
+        try:
+            import rclpy
+            from rclpy.executors import SingleThreadedExecutor
+            from rclpy.node import Node
+            from std_msgs.msg import Bool
+
+            if not rclpy.ok():
+                rclpy.init()
+
+            # Use a unique node name to avoid collisions when both left and
+            # right operators are running in the same process.
+            node_name = f"xarm_pedal_{self.operator_name.replace('-', '_')}"
+            self._pedal_ros2_node = Node(node_name)
+            self._pedal_ros2_node.create_subscription(
+                Bool,
+                "/pedal_pressed",
+                self._pedal_pressed_callback,
+                10,
+            )
+
+            self._pedal_executor = SingleThreadedExecutor()
+            self._pedal_executor.add_node(self._pedal_ros2_node)
+            self._pedal_spin_thread = threading.Thread(
+                target=self._pedal_executor.spin, daemon=True
+            )
+            self._pedal_spin_thread.start()
+            logger.info(
+                f"[{self.operator_name}] Pedal subscriber initialised "
+                f"(node={node_name}); waiting for first pedal press before reset."
+            )
+        except Exception as e:
+            logger.error(
+                f"[{self.operator_name}] Could not initialise ROS2 pedal subscriber "
+                f"({e})."
+            )
+
+    def _pedal_pressed_callback(self, msg) -> None:
+        """Called by the ROS2 executor thread on every /pedal_pressed message.
+
+        On the very first True message we clear the waiting flag and mark
+        is_first_frame so _reset_teleop() fires on the next control loop
+        iteration, aligning the baselines to the current state.
+        """
+        if not msg.data:
+            return
+        with self._pedal_lock:
+            if not self._waiting_for_first_pedal:
+                return  # Already handled
+            self._waiting_for_first_pedal = False
+            self.is_first_frame = True  # Ensure _reset_teleop() is triggered
+        logger.info(
+            f"[{self.operator_name}] First pedal press detected — "
+            "resetting teleop baseline on next cycle."
+        )
 
     def _contains_nan(self, arr: np.ndarray) -> bool:
         """Check if numpy array contains any NaN values."""
@@ -705,6 +786,14 @@ class XArmOperator(Operator):
         Handles state changes (reset, pause/resume), applies transformations,
         filters the result, and publishes the command.
         """
+        # Block until the pedal has been pressed for the first time so the
+        # baseline is captured at the moment the operator intends to start
+        # moving rather than at system startup.
+        with self._pedal_lock:
+            waiting = self._waiting_for_first_pedal
+        if waiting:
+            return
+
         frame_start_time = time.time()
 
         # 1. Check for state changes (Pause/Resume, Resolution)
@@ -956,6 +1045,19 @@ class XArmOperator(Operator):
         if not queue:
             return action  # Or return np.zeros_like(action) or raise error
         return np.mean(queue, axis=0)
+
+    def cleanup(self) -> None:
+        """Shut down the ROS2 pedal subscriber, then delegate to the base class."""
+        try:
+            if self._pedal_executor is not None:
+                self._pedal_executor.shutdown()
+                self._pedal_executor = None
+            if self._pedal_ros2_node is not None:
+                self._pedal_ros2_node.destroy_node()
+                self._pedal_ros2_node = None
+        except Exception as e:
+            logger.warning(f"[{self.operator_name}] Error shutting down pedal ROS2 node: {e}")
+        super().cleanup()
 
     def run(self):
         # TODO: Call this method stream to align with rest of the codebase

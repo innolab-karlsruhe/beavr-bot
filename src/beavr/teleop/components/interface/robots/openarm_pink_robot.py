@@ -31,6 +31,7 @@ from beavr.teleop.components.operator.operator_types import CartesianTarget
 from beavr.teleop.configs.constants import robots
 
 logger = logging.getLogger(__name__)
+logger.level = logging.WARNING
 
 
 def get_urdf_from_ros_topic(timeout_sec: float = 5.0) -> str:
@@ -70,7 +71,7 @@ def get_urdf_from_ros_topic(timeout_sec: float = 5.0) -> str:
 # ============================================================================
 # Task costs for FrameTask (end-effector positioning)
 PINK_POSITION_COST = 1.0  # [cost] / [m] - aggressive positioning priority
-PINK_ORIENTATION_COST = 1.0  # [cost] / [rad] - low cost to enable orientation tracking
+PINK_ORIENTATION_COST = 0.1  # [cost] / [rad] - low cost to enable orientation tracking
 PINK_LM_DAMPING = 0.1  # Levenberg-Marquardt damping - very low for faster convergence
 
 # Posture task for joint regularization. Two cost levels: a near-zero default
@@ -78,16 +79,16 @@ PINK_LM_DAMPING = 0.1  # Levenberg-Marquardt damping - very low for faster conve
 # cost on the redundant DoF (joint3) biases the IK nullspace toward an
 # "elbow-out" reference posture. Both costs stay well below PINK_POSITION_COST
 # so end-effector tracking remains the dominant objective.
-PINK_POSTURE_COST_DEFAULT = 0.01  # [cost] / [rad] - effectively frees non-biased joints
-PINK_POSTURE_COST_ELBOW = 0.4  # [cost] / [rad] - nullspace bias strength on joint3
+PINK_POSTURE_COST_DEFAULT = 0.001  # [cost] / [rad] - effectively frees non-biased joints
+PINK_POSTURE_COST_ELBOW = 0.2  # [cost] / [rad] - nullspace bias strength on joint3
 
 # Target swivel angle for joint3 (shoulder/upper-arm roll) that pushes the
-# elbow laterally outward. ~0.6 rad (~34 deg), well within the URDF limit
+# elbow laterally outward. ~0.15 rad (~8.6 deg), well within the URDF limit
 # (joint3 is bounded to +/- pi/2 in joint_limits.yaml). The sign depends on
 # the left/right axis convention encoded in the URDF (`reflect` parameter in
 # openarm_arm.xacro). If an arm's elbow ends up pointing *inward* in practice,
 # flip the corresponding sign below.
-PINK_ELBOW_OUT_ANGLE_RAD = 0.6
+PINK_ELBOW_OUT_ANGLE_RAD = 0.15
 PINK_ELBOW_OUT_SIGN_LEFT = +1.0
 PINK_ELBOW_OUT_SIGN_RIGHT = -1.0
 
@@ -95,7 +96,7 @@ PINK_ELBOW_OUT_SIGN_RIGHT = -1.0
 PINK_IK_DT = 0.033  # seconds - smaller steps for stability
 
 # Iterative IK parameters
-PINK_MAX_ITERATIONS = 10  # max IK iterations per call
+PINK_MAX_ITERATIONS = 20  # max IK iterations per call
 PINK_POS_TOLERANCE = 0.01  # position tolerance in meters
 PINK_ORIENTATION_TOLERANCE = 0.0174533  # orientation tolerance (1 degree)
 
@@ -210,13 +211,13 @@ class PinkKinematics:
             # remains dominant. This realises a soft nullspace bias.
             self._elbow_out_sign = self._detect_elbow_out_sign()
             posture_cost, q_ref = self._build_elbow_out_posture(self._elbow_out_sign)
-            self._posture_task = PostureTask(cost=posture_cost)
-            self._posture_task.set_target(q_ref)
+            #self._posture_task = PostureTask(cost=posture_cost)
+            #self._posture_task.set_target(q_ref)
 
             self._damping_task = DampingTask(
                 cost=1e-3,  # [cost] / [rad/s]
             )
-            self._tasks = [self._end_effector_task, self._posture_task, self._damping_task]
+            self._tasks = [self._end_effector_task, self._damping_task]
 
             # Anchor the FrameTask at the current pose so we don't generate a
             # transient at startup. The PostureTask target was already set
@@ -430,15 +431,13 @@ class PinkKinematics:
                 if position_error_norm_old is not None and configuration_q_old is not None:
                     # Break if the error does not change by more than 1mm (0.001m)
                     if (
-                        abs(position_error_norm - position_error_norm_old) < 0.001
-                        and abs(orientation_error - orientation_error_old) < 0.001
+                        abs(position_error_norm - position_error_norm_old) < PINK_POS_TOLERANCE / 10
+                        and abs(orientation_error - orientation_error_old) < PINK_ORIENTATION_TOLERANCE / 10
                     ):
-                        # logging.getLogger("movePerf").log(logging.DEBUG, f"Converged because of no significant error change ({abs(position_error_norm - position_error_norm_old)})")
                         break
 
                     # If error increased, use previous configuration and break
                     if (position_error_norm_old < position_error_norm) and (orientation_error_old < orientation_error):
-                        # logging.getLogger("movePerf").log(logging.DEBUG, f"Converged because of increasing error ({position_error_norm:.4f}). Using previous configuration")
                         self._configuration.update(configuration_q_old)
                         break
 
@@ -488,6 +487,10 @@ class PinkKinematics:
             final_error = np.array(target_transform.translation) - np.array(current_pose.translation)
             final_error_norm = np.linalg.norm(final_error)
             logger.debug(f"[Pink IK] Final position error: {final_error_norm:.4f}m")
+
+            # Do not move if the error is too high
+            if final_error_norm > PINK_POS_TOLERANCE * 5:
+                return None
 
             # Get joint angles and apply best-effort clamping
             full_joint_angles = self._configuration.q.copy()
