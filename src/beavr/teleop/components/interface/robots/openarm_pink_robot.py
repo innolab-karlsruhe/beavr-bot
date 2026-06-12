@@ -488,10 +488,6 @@ class PinkKinematics:
             final_error_norm = np.linalg.norm(final_error)
             logger.debug(f"[Pink IK] Final position error: {final_error_norm:.4f}m")
 
-            # Do not move if the error is too high
-            if final_error_norm > PINK_POS_TOLERANCE * 5:
-                return None
-
             # Get joint angles and apply best-effort clamping
             full_joint_angles = self._configuration.q.copy()
 
