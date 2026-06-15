@@ -26,13 +26,13 @@ class OpenArmGripperController:
     def __init__(
         self,
         gripper_action_name: str = "",
-        max_width: float = None,
-        min_width: float = None,
-        default_speed: float = None,
+        max_width: float = robots.OPENARM_GRIPPER_MAX_WIDTH_M,
+        min_width: float = 0.0,
+        default_speed: float = robots.OPENARM_GRIPPER_DEFAULT_SPEED_MPS,
     ):
-        self.max_width = max_width or robots.OPENARM_GRIPPER_MAX_WIDTH_M
-        self.min_width = min_width or 0.0
-        self.default_speed = default_speed or robots.OPENARM_GRIPPER_DEFAULT_SPEED_MPS
+        self.max_width = max_width
+        self.min_width = min_width
+        self.default_speed = default_speed
 
         self._initialize_ros2()
 

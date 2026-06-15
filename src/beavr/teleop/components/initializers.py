@@ -135,7 +135,7 @@ class TeleOperator(ProcessInstantiator):
             self.processes.append(Process(target=self._start_component, args=(operator_config,)))
 
     def _init_robot_interface(self):
-        for robot_config in self.robot_config.robots:
+        for robot_config in self.robot_config.robots_list:
             # Derive a human-readable robot name from the dataclass type.
             # Instantiate the robot config in a separate process.
             # This is where the ``build()`` method is called.

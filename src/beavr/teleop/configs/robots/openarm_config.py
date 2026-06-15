@@ -188,7 +188,7 @@ class OpenArmConfig:
     detector: list = field(default_factory=list)
     transforms: list = field(default_factory=list)
     visualizers: list = field(default_factory=list)
-    robots: list = field(default_factory=list)
+    robots_list: list = field(default_factory=list)
     operators: list = field(default_factory=list)
 
     def __post_init__(self):
@@ -196,25 +196,6 @@ class OpenArmConfig:
         self._configure_for_laterality()
 
     def _configure_for_laterality(self):
-        # Create detector configurations - unified approach handles all lateralities
-        self.detector = []
-        if self.laterality == Laterality.BIMANUAL:
-            # Single detector handles both hands
-            self.detector.append(
-                SharedComponentRegistry.get_bimanual_detector_config(
-                    host=network.HOST_ADDRESS,
-                )
-            )
-        else:
-            # Single detector for specific hand side
-            hand_side = robots.RIGHT if self.laterality == Laterality.RIGHT else robots.LEFT
-            self.detector.append(
-                SharedComponentRegistry.get_detector_config(
-                    hand_side=hand_side,
-                    host=network.HOST_ADDRESS,
-                )
-            )
-
         # Controller-tracking detector (per side). Independent path — publishes
         # InputFrames directly on its own controller-transform port. Operator
         # subscribes to both this port and the keypoint-transform port and
@@ -265,9 +246,9 @@ class OpenArmConfig:
         self.visualizers = []
 
         # Robot and Robot Gripper Configurations
-        self.robots = []
+        self.robots_list = []
         if self.laterality in [Laterality.LEFT, Laterality.BIMANUAL]:
-            self.robots.append(
+            self.robots_list.append(
                 OpenArmRobotCfg(
                     host=network.HOST_ADDRESS,
                     laterality=Laterality.LEFT,
@@ -288,7 +269,7 @@ class OpenArmConfig:
                     },
                 )
             )
-            self.robots.append(
+            self.robots_list.append(
                 OpenArmGripperRobotCfg(
                     host=network.HOST_ADDRESS,
                     laterality=Laterality.LEFT,
@@ -301,7 +282,7 @@ class OpenArmConfig:
             )
 
         if self.laterality in [Laterality.RIGHT, Laterality.BIMANUAL]:
-            self.robots.append(
+            self.robots_list.append(
                 OpenArmRobotCfg(
                     host=network.HOST_ADDRESS,
                     laterality=Laterality.RIGHT,
@@ -322,7 +303,7 @@ class OpenArmConfig:
                     },
                 )
             )
-            self.robots.append(
+            self.robots_list.append(
                 OpenArmGripperRobotCfg(
                     host=network.HOST_ADDRESS,
                     laterality=Laterality.RIGHT,
@@ -395,6 +376,6 @@ class OpenArmConfig:
             "detector": [detector.build() for detector in self.detector],
             "transforms": [item.build() for item in self.transforms],
             "visualizers": [item.build() for item in self.visualizers],
-            "robots": [item.build() for item in self.robots],
+            "robots": [item.build() for item in self.robots_list],
             "operators": [item.build() for item in self.operators],
         }

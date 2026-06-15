@@ -133,7 +133,7 @@ class LeapHandConfig:
     transforms: list = field(default_factory=list)
     visualizers: list = field(default_factory=list)
     operators: list = field(default_factory=list)
-    robots: list = field(default_factory=list)
+    robots_list: list = field(default_factory=list)
     recorded_data: list = field(
         default_factory=lambda: [
             [
@@ -151,30 +151,6 @@ class LeapHandConfig:
 
     def _configure_for_laterality(self):
         """Configure all components based on the laterality setting - explicit and simple."""
-
-        # Create detector configurations
-        self.detector = []
-        if self.laterality == Laterality.BIMANUAL:
-            self.detector.append(
-                SharedComponentRegistry.get_bimanual_detector_config(
-                    host=network.HOST_ADDRESS,
-                )
-            )
-        else:
-            if self.laterality == Laterality.RIGHT:
-                self.detector.append(
-                    SharedComponentRegistry.get_detector_config(
-                        host=network.HOST_ADDRESS,
-                        hand_side=robots.RIGHT,
-                    )
-                )
-            elif self.laterality == Laterality.LEFT:
-                self.detector.append(
-                    SharedComponentRegistry.get_detector_config(
-                        host=network.HOST_ADDRESS,
-                        hand_side=robots.LEFT,
-                    )
-                )
 
         # Create transform configurations
         self.transforms = []
@@ -221,9 +197,9 @@ class LeapHandConfig:
             )
 
         # Create robot configurations
-        self.robots = []
+        self.robots_list = []
         if self.laterality in [Laterality.RIGHT, Laterality.BIMANUAL]:
-            self.robots.append(
+            self.robots_list.append(
                 LeapHandRobotCfg(
                     host=network.HOST_ADDRESS,
                     joint_angle_subscribe_port=ports.CARTESIAN_COMMAND_PUBLISHER_PORT,
@@ -243,7 +219,7 @@ class LeapHandConfig:
             )
 
         if self.laterality in [Laterality.LEFT, Laterality.BIMANUAL]:
-            self.robots.append(
+            self.robots_list.append(
                 LeapHandRobotCfg(
                     host=network.HOST_ADDRESS,
                     joint_angle_subscribe_port=ports.CARTESIAN_COMMAND_PUBLISHER_PORT_LEFT,
@@ -330,6 +306,6 @@ class LeapHandConfig:
             "transforms": [item.build() for item in self.transforms],
             "visualizers": [item.build() for item in self.visualizers],
             "operators": [item.build() for item in self.operators],
-            "robots": [item.build() for item in self.robots],
+            "robots": [item.build() for item in self.robots_list],
             "recorded_data": self.recorded_data,
         }

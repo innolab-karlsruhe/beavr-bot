@@ -45,10 +45,6 @@ class MainConfig:
     # Data storage configuration
     storage_path: str = "data/recordings"
 
-    # Record and replay configuration
-    record: bool = False  # Record VR data to file
-    replay: Optional[str] = None  # Path to .npz file for replay in mock mode
-
     # Runtime configuration (set programmatically)
     record_output_path: Optional[str] = None
     mock_data_path: Optional[str] = None
@@ -68,51 +64,6 @@ class MainConfig:
 
         # Load robot configuration(s) using utility
         self.robot = load_robot_config(self.robot_name, self.laterality_enum)
-
-        # Apply record/replay configuration to detectors if specified
-        self._apply_record_replay_config()
-
-    def _apply_record_replay_config(self):
-        """Apply record/replay configuration to VR detectors."""
-        if not hasattr(self.robot, "detector"):
-            return
-
-        time.sleep(0.1)  # Brief delay to ensure initialization
-
-        import datetime
-
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        if self.record:
-            record_output_path = f"{self.storage_path}/vr_recording_{timestamp}.npz"
-
-            def apply_record_mode(detector_cfg):
-                if hasattr(detector_cfg, "record_mode"):
-                    detector_cfg.record_mode = True
-                    detector_cfg.record_output_path = record_output_path
-                return detector_cfg
-
-            if isinstance(self.robot.detector, list):
-                self.robot.detector = [apply_record_mode(d) for d in self.robot.detector]
-            else:
-                self.robot.detector = apply_record_mode(self.robot.detector)
-
-            logger.info(f"🔴 Applied RECORD mode to detector - saving to {record_output_path}")
-
-        if self.replay:
-
-            def apply_mock_mode(detector_cfg):
-                if hasattr(detector_cfg, "use_mock_mode"):
-                    detector_cfg.use_mock_mode = True
-                    detector_cfg.mock_data_path = self.replay
-                return detector_cfg
-
-            if isinstance(self.robot.detector, list):
-                self.robot.detector = [apply_mock_mode(d) for d in self.robot.detector]
-            else:
-                self.robot.detector = apply_mock_mode(self.robot.detector)
-
-            logger.info(f"📼 Applied MOCK/REPLAY mode to detector - loading from {self.replay}")
 
     # TODO: Remove this once we have a complete migration to the new structured config
     # Convenience attribute delegation for backward compatibility
@@ -243,4 +194,4 @@ def main(cfg: MainConfig):
 
 
 if __name__ == "__main__":
-    main()
+    main() # type: ignore[call-arg] 
