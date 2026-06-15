@@ -46,7 +46,7 @@ class OpenArmForwardController:
 
         self._initialize_ros2()
 
-        self._joint_command_publisher: Optional[Publisher] = self._node.create_publisher(
+        self._joint_command_publisher = self._node.create_publisher(
             Float64MultiArray, self.command_topic_name, 10
         )
 
@@ -106,7 +106,7 @@ class OpenArmForwardController:
             efforts = []
             for joint_name in self.joint_names:
                 try:
-                    idx = msg.name.index(joint_name)
+                    idx = list(msg.name).index(joint_name)
                     positions.append(msg.position[idx])
                     if msg.velocity:
                         velocities.append(msg.velocity[idx])
@@ -212,8 +212,6 @@ class OpenArmForwardController:
         logger.info("Cleaning up OpenArm forward controller...")
         if hasattr(self, "_joint_state_subscriber"):
             self._node.destroy_subscription(self._joint_state_subscriber)
-        if hasattr(self, "_pedal_pressed_subscriber"):
-            self._node.destroy_subscription(self._pedal_pressed_subscriber)
         if hasattr(self, "_joint_command_publisher"):
             self._node.destroy_publisher(self._joint_command_publisher)
         if hasattr(self, "_executor"):

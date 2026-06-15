@@ -167,7 +167,7 @@ class XArm7Config:
     detector: list = field(default_factory=list)
     transforms: list = field(default_factory=list)
     visualizers: list = field(default_factory=list)
-    robots: list = field(default_factory=list)
+    robots_list: list = field(default_factory=list)
     operators: list = field(default_factory=list)
 
     def __post_init__(self):
@@ -178,25 +178,6 @@ class XArm7Config:
 
     def _configure_for_laterality(self):
         """Configure all components based on the laterality setting - explicit and simple."""
-
-        # Create detector configurations - unified approach handles all lateralities
-        self.detector = []
-        if self.laterality == Laterality.BIMANUAL:
-            # Single detector handles both hands
-            self.detector.append(
-                SharedComponentRegistry.get_bimanual_detector_config(
-                    host=network.HOST_ADDRESS,
-                )
-            )
-        else:
-            # Single detector for specific hand side
-            hand_side = robots.RIGHT if self.laterality == Laterality.RIGHT else robots.LEFT
-            self.detector.append(
-                SharedComponentRegistry.get_detector_config(
-                    hand_side=hand_side,
-                    host=network.HOST_ADDRESS,
-                )
-            )
 
         # Create transform configurations
         self.transforms = []
@@ -220,28 +201,11 @@ class XArm7Config:
                 )
             )
 
-        # Create visualizer configurations
-        self.visualizers = []
-        # if self.laterality in [Laterality.RIGHT, Laterality.BIMANUAL]:
-        #     self.visualizers.append(SharedComponentRegistry.get_visualizer_config(
-        #         hand_side=robots.RIGHT,
-        #         host=network.HOST_ADDRESS,
-        #         oculus_feedback_port=ports.OCULUS_GRAPH_PORT,
-        #         display_plot=False,
-        #     ))
-
-        # if self.laterality in [Laterality.LEFT, Laterality.BIMANUAL]:
-        #     self.visualizers.append(SharedComponentRegistry.get_visualizer_config(
-        #         hand_side=robots.LEFT,
-        #         host=network.HOST_ADDRESS,
-        #         oculus_feedback_port=ports.OCULUS_GRAPH_PORT,
-        #         display_plot=False,
-        #     ))
 
         # Create robot configurations
-        self.robots = []
+        self.robots_list = []
         if self.laterality in [Laterality.RIGHT, Laterality.BIMANUAL]:
-            self.robots.append(
+            self.robots_list.append(
                 XArm7RobotCfg(
                     host=network.HOST_ADDRESS,
                     robot_ip=network.RIGHT_XARM_IP,
@@ -267,7 +231,7 @@ class XArm7Config:
             )
 
         if self.laterality in [Laterality.LEFT, Laterality.BIMANUAL]:
-            self.robots.append(
+            self.robots_list.append(
                 XArm7RobotCfg(
                     host=network.HOST_ADDRESS,
                     robot_ip=network.LEFT_XARM_IP,
@@ -353,6 +317,6 @@ class XArm7Config:
             "detector": [detector.build() for detector in self.detector],
             "transforms": [item.build() for item in self.transforms],
             "visualizers": [item.build() for item in self.visualizers],
-            "robots": [item.build() for item in self.robots],
+            "robots": [item.build() for item in self.robots_list],
             "operators": [item.build() for item in self.operators],
         }
