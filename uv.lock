@@ -245,6 +245,7 @@ source = { editable = "." }
 dependencies = [
     { name = "av" },
     { name = "blosc" },
+    { name = "daqp" },
     { name = "datasets" },
     { name = "deepdiff" },
     { name = "diffusers" },
@@ -322,6 +323,7 @@ requires-dist = [
     { name = "av", specifier = ">=14.2.0" },
     { name = "black", marker = "extra == 'dev'" },
     { name = "blosc", specifier = ">=1.11.1" },
+    { name = "daqp", specifier = ">=0.9.1" },
     { name = "datasets", specifier = ">=2.19.0,<=3.6.0" },
     { name = "debugpy", marker = "extra == 'dev'" },
     { name = "deepdiff", specifier = ">=7.0.1" },
@@ -823,6 +825,21 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a9/95/a3dbbb5028f35eafb79008e7522a75244477d2838f38cbb722248dabc2a8/cycler-0.12.1.tar.gz", hash = "sha256:88bb128f02ba341da8ef447245a9e138fae777f6a23943da4540077d3601eb1c", size = 7615, upload-time = "2023-10-07T05:32:18.335Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl", hash = "sha256:85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30", size = 8321, upload-time = "2023-10-07T05:32:16.783Z" },
+]
+
+[[package]]
+name = "daqp"
+version = "0.9.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e3/a2/a4d93becb2fa45131a8d283643799b53ce95e659377e0dbe715243a439bc/daqp-0.9.1.tar.gz", hash = "sha256:5c25df894114bda14ad6db5179a3210fc6a3510e71b6196ef488dd809a139443", size = 51862, upload-time = "2026-08-16T14:59:46.227Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/ac/760bfd6b2b4f820b636ee0604c707fd392378acd65e088f0ff5540743d8c/daqp-0.9.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:f504844f5bb9c64e34d269562bf34636328e56f88514e0bf336f14e515490b6a", size = 189850, upload-time = "2026-08-16T15:08:25.704Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/12/a6a36407ee2d59ea7856d95066afc44ab5be5f6203ee762fd9814f95db27/daqp-0.9.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:4cb1e570c87b95c14d3af1681b192269c608b6af516ff85b02da7373955af610", size = 177655, upload-time = "2026-08-16T15:08:26.756Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/45/a071182ccd5874bb39e410917863f6b3f7c4343455cc662650bcf3dfb823/daqp-0.9.1-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1be609abc216d9638df4d7c3fe628519f3207bd2757d019da536d4b90db67181", size = 864760, upload-time = "2026-08-16T15:06:52.471Z" },
+    { url = "https://files.pythonhosted.org/packages/09/7d/82b6678f13d2e74b186383ab0fc25b1be04fcd6477ac20c4f863f89e2ae4/daqp-0.9.1-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:3a674970785467e839bc432acf0f0470d52f5909e5e2c4a1a5520c51b5f6860b", size = 897666, upload-time = "2026-08-16T14:59:36.371Z" },
+    { url = "https://files.pythonhosted.org/packages/61/ee/af559a177a00ee0471c9f94216a644c85c468b1ef786d04d886800ed320d/daqp-0.9.1-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:013f8896cfa652da2bd24712235a55047e34ebc4293be40c2c2349e16bfebd0a", size = 855045, upload-time = "2026-08-16T15:06:53.877Z" },
+    { url = "https://files.pythonhosted.org/packages/77/66/888559c5d1d986627da037f9bd7791ad0a1b0a51c4047da71a4516035b60/daqp-0.9.1-cp310-cp310-win32.whl", hash = "sha256:e11456c42b2cbf67220e9f9426e89bc82ee4d1d8b0e14927dab4516f6b41046c", size = 126748, upload-time = "2026-08-16T15:07:36.291Z" },
+    { url = "https://files.pythonhosted.org/packages/84/4f/4a6eecd036d773c73352d668e2c9acff107e485804800981cad0c538cae6/daqp-0.9.1-cp310-cp310-win_amd64.whl", hash = "sha256:a384b306642b228fc3d8f67d8ed7eb5823b02f282f1b5fa48039d16ad71c4194", size = 153958, upload-time = "2026-08-16T15:07:37.213Z" },
 ]
 
 [[package]]
