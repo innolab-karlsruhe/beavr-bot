@@ -1,3 +1,4 @@
 [submodule "beavr-app"]
 	path = beavr-app
 	url = git@github.com:ARCLab-MIT/BeaVR-app.git
+	update = none
