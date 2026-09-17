@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Specifically suppress the FigureCanvasAgg warning
 warnings.filterwarnings("ignore", category=UserWarning, message="FigureCanvasAgg is non-interactive")
-matplotlib.use("TkAgg")  # Set the backend to TkAgg before importing pyplot
+matplotlib.use("Agg")  # Set the backend to Agg for headless operation before importing pyplot
 
 
 def plot_line(x1, x2, y1, y2):
