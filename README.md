@@ -63,11 +63,11 @@ Key features:
 For development and running the full system with all dependencies (including PyTorch and simulation tools), we recommend using uv:
 
 ```bash
-# Install Python 3.10.13
-uv python install 3.10.13
+# Install Python 3.12
+uv python install 3.12
 
-# Create virtual environment with Python 3.10.13
-uv venv --python 3.10.13
+# Create virtual environment with Python 3.12
+uv venv --python 3.12
 
 # Activate the virtual environment
 source .venv/bin/activate  # On Linux/Mac
