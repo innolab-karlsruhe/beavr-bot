@@ -98,11 +98,11 @@ sudo apt-get install build-essential python3-dev
 Using uv (recommended):
 
 ```bash
-# Install Python 3.10.13
-uv python install 3.10.13
+# Install Python 3.12
+uv python install 3.12
 
 # Create virtual environment
-uv venv --python 3.10.13
+uv venv --python 3.12
 
 # Activate the virtual environment
 source .venv/bin/activate  # On Linux/Mac
@@ -116,11 +116,11 @@ uv sync --extra dev
 Alternatively, using pip:
 
 ```bash
-# Install Python 3.10.13
-uv python install 3.10.13
+# Install Python 3.12
+uv python install 3.12
 
 # Create virtual environment
-uv venv --python 3.10.13
+uv venv --python 3.12
 
 # Activate the virtual environment
 source .venv/bin/activate  # On Linux/Mac
