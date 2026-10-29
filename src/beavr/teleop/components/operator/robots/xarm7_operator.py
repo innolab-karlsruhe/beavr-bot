@@ -235,11 +235,15 @@ class XArmOperator(Operator):
         else:
             self.pose_logger = None
 
-        # Pedal-gated initial reset: block _apply_retargeted_angles until the
-        # pedal is pressed for the first time so that the baseline (hand_init_h /
-        # robot_init_h) is captured at the moment the operator actually wants to
-        # start moving, not at system startup.
+        # Pedal-gated reset: block _apply_retargeted_angles until the pedal is
+        # pressed for the first time so that the baseline (hand_init_h /
+        # robot_init_h) is captured at the moment the operator actually wants
+        # to start moving, not at system startup. Every subsequent press
+        # (rising edge on /pedal_pressed) re-captures the baseline so commands
+        # are always relative to the controller pose at the moment of the last
+        # press.
         self._waiting_for_first_pedal = True
+        self._pedal_was_pressed = False
         self._pedal_lock = threading.Lock()
 
         # Try to subscribe to /pedal_pressed via ROS2.  If ROS2 is not
@@ -354,19 +358,26 @@ class XArmOperator(Operator):
     def _pedal_pressed_callback(self, msg) -> None:
         """Called by the ROS2 executor thread on every /pedal_pressed message.
 
-        On the very first True message we clear the waiting flag and mark
-        is_first_frame so _reset_teleop() fires on the next control loop
-        iteration, aligning the baselines to the current state.
+        The pedal state is published either as edge events (real
+        pedal_event_publisher: one True per press, one False per release) or
+        continuously at a fixed rate (mock_pedal_publisher), so the rising
+        edge is detected here. On every press we mark is_first_frame so that
+        _reset_teleop() fires on the next control loop iteration and
+        re-captures both baselines (hand_init_h / robot_init_h). Commands are
+        therefore always relative to the controller pose at the moment of the
+        last press, which prevents the arm from jumping to catch up when the
+        pedal is released, the hand moved, and the pedal pressed again.
         """
-        if not msg.data:
-            return
+        pressed = bool(msg.data)
         with self._pedal_lock:
-            if not self._waiting_for_first_pedal:
-                return  # Already handled
+            rising_edge = pressed and not self._pedal_was_pressed
+            self._pedal_was_pressed = pressed
+            if not rising_edge:
+                return
             self._waiting_for_first_pedal = False
             self.is_first_frame = True  # Ensure _reset_teleop() is triggered
         logger.info(
-            f"[{self.operator_name}] First pedal press detected — "
+            f"[{self.operator_name}] Pedal press detected — "
             "resetting teleop baseline on next cycle."
         )
 
