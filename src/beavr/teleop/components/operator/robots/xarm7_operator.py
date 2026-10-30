@@ -40,6 +40,10 @@ class XArmOperator(Operator):
     and provide the appropriate transformation matrices.
     """
 
+    # How often (seconds) to re-emit the warning while the operator is blocked
+    # waiting for the first pedal press.
+    _PEDAL_WAIT_LOG_INTERVAL_S: float = 5.0
+
     def __init__(
         self,
         operator_name: str,
@@ -244,6 +248,14 @@ class XArmOperator(Operator):
         # press.
         self._waiting_for_first_pedal = True
         self._pedal_was_pressed = False
+        # Pedal presses are recorded as a monotonic epoch counter instead of
+        # a bool flag so that a press arriving while a reset is already in
+        # progress is never lost: the control loop consumes the epoch only
+        # after the reset completes, and a late press simply triggers one
+        # more reset on the next cycle.
+        self._reset_epoch = 0
+        self._last_reset_epoch = 0
+        self._last_pedal_wait_log_s = 0.0  # Last time the waiting-for-pedal warning was emitted
         self._pedal_lock = threading.Lock()
 
         # Try to subscribe to /pedal_pressed via ROS2.  If ROS2 is not
@@ -311,7 +323,7 @@ class XArmOperator(Operator):
         return self.real
 
     # ------------------------------------------------------------------
-    # Pedal-gated initial reset
+    # Pedal-gated reset
     # ------------------------------------------------------------------
     def _init_pedal_subscriber(self) -> None:
         """Subscribe to /pedal_pressed via ROS2 in a background thread.
@@ -352,8 +364,17 @@ class XArmOperator(Operator):
         except Exception as e:
             logger.error(
                 f"[{self.operator_name}] Could not initialise ROS2 pedal subscriber "
-                f"({e})."
+                f"({e}). No pedal messages can ever arrive, so the teleop gate "
+                f"is lifted and the baseline is captured on the first control "
+                f"cycle instead (reset-on-startup fallback)."
             )
+            # Any failure here means /pedal_pressed will never be delivered,
+            # so the gate could never be lifted any other way. Fall back to
+            # the original behaviour: is_first_frame is True from __init__,
+            # so the first _apply_retargeted_angles cycle triggers
+            # _reset_teleop() and captures the baselines at startup.
+            with self._pedal_lock:
+                self._waiting_for_first_pedal = False
 
     def _pedal_pressed_callback(self, msg) -> None:
         """Called by the ROS2 executor thread on every /pedal_pressed message.
@@ -361,12 +382,18 @@ class XArmOperator(Operator):
         The pedal state is published either as edge events (real
         pedal_event_publisher: one True per press, one False per release) or
         continuously at a fixed rate (mock_pedal_publisher), so the rising
-        edge is detected here. On every press we mark is_first_frame so that
+        edge is detected here. On every press we bump _reset_epoch so that
         _reset_teleop() fires on the next control loop iteration and
         re-captures both baselines (hand_init_h / robot_init_h). Commands are
         therefore always relative to the controller pose at the moment of the
         last press, which prevents the arm from jumping to catch up when the
         pedal is released, the hand moved, and the pedal pressed again.
+
+        The epoch counter (instead of setting is_first_frame directly) is
+        what keeps a press that arrives while a reset is already in progress
+        from being swallowed by that reset's trailing `is_first_frame =
+        False`: the control loop consumes the epoch only after the reset
+        completes, so the late press simply triggers one more reset.
         """
         pressed = bool(msg.data)
         with self._pedal_lock:
@@ -375,7 +402,7 @@ class XArmOperator(Operator):
             if not rising_edge:
                 return
             self._waiting_for_first_pedal = False
-            self.is_first_frame = True  # Ensure _reset_teleop() is triggered
+            self._reset_epoch += 1  # Request a baseline re-capture
         logger.info(
             f"[{self.operator_name}] Pedal press detected — "
             "resetting teleop baseline on next cycle."
@@ -803,6 +830,16 @@ class XArmOperator(Operator):
         with self._pedal_lock:
             waiting = self._waiting_for_first_pedal
         if waiting:
+            # Warn periodically so a gate that never opens (e.g. ROS2 is up
+            # but no pedal publisher is running) shows up in the logs instead
+            # of silently producing a dead arm.
+            now = time.time()
+            if now - self._last_pedal_wait_log_s >= self._PEDAL_WAIT_LOG_INTERVAL_S:
+                self._last_pedal_wait_log_s = now
+                logger.warning(
+                    f"[{self.operator_name}] Still waiting for first pedal press "
+                    f"on /pedal_pressed — no motion commands are being published."
+                )
             return
 
         frame_start_time = time.time()
@@ -811,9 +848,18 @@ class XArmOperator(Operator):
         new_arm_teleop_state = self._get_arm_teleop_state()
         self.resolution_scale = self._get_resolution_scale_mode()  # Update resolution scale
 
-        # Determine if a reset is needed
-        needs_reset = self.is_first_frame or (
-            self.arm_teleop_state == robots.ARM_TELEOP_STOP and new_arm_teleop_state == robots.ARM_TELEOP_CONT
+        # Determine if a reset is needed. A pedal press bumps _reset_epoch; a
+        # mismatch against _last_reset_epoch means at least one press has not
+        # been served by a completed reset yet.
+        with self._pedal_lock:
+            reset_epoch = self._reset_epoch
+        needs_reset = (
+            self.is_first_frame
+            or reset_epoch != self._last_reset_epoch
+            or (
+                self.arm_teleop_state == robots.ARM_TELEOP_STOP
+                and new_arm_teleop_state == robots.ARM_TELEOP_CONT
+            )
         )
 
         # Update state *after* checking for transition
@@ -834,6 +880,11 @@ class XArmOperator(Operator):
             if moving_hand_frame is None:
                 logger.error(f"ERROR ({self.operator_name}): Reset failed, cannot proceed.")
                 return  # Exit if reset failed
+            # Consume only the presses that were pending when this reset
+            # started. A press that arrived while the reset was in progress
+            # leaves _reset_epoch ahead of this snapshot and correctly
+            # triggers another reset on the next cycle.
+            self._last_reset_epoch = reset_epoch
             logger.debug(f"Reset successful, got hand frame: {moving_hand_frame}")
             # Reset is done, is_first_frame is now False
         else:
