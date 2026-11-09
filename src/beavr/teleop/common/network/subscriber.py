@@ -246,6 +246,16 @@ class ZMQSubscriber(BaseSubscriber[T], Generic[T]):
             pass
         return data
 
+    def clear(self) -> None:
+        """Drop the cached message (consume-once semantics).
+
+        ``recv_keypoints`` always returns the last received message and never
+        drains the cache, so a consumer that treats a message as a one-shot
+        command (e.g. a reset request) must call this after reading it;
+        otherwise the command re-arms on every subsequent read.
+        """
+        self._last_data = None
+
 
 class ZMQButtonFeedbackSubscriber(BaseSubscriber[T], Generic[T]):
     """Subscriber for button/feedback using multipart messaging.
