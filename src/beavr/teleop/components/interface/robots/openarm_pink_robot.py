@@ -734,9 +734,17 @@ class OpenArmPinkRobot(RobotWrapper):
                 logger.error(f"Failed to publish robot pose for {self.name}: {e}")
 
     def check_reset(self):
+        """Check for a pending reset command, consuming it once.
 
+        The subscriber cache is never cleared automatically, so the value must
+        be dropped here after reading: otherwise every subsequent cycle would
+        report a reset and re-publish the robot pose at the stream rate.
+        """
         reset_bool = self._reset_subscriber.recv_keypoints()
-        return reset_bool is not None
+        if reset_bool is None:
+            return False
+        self._reset_subscriber.clear()
+        return True
 
     def check_home(self):
         home_bool = self._home_subscriber.recv_keypoints()
@@ -790,6 +798,28 @@ class OpenArmPinkRobot(RobotWrapper):
             reset_signaled = self.check_reset()
 
             if reset_signaled:
+                # The operator re-captures its baseline on every deadman press
+                # ("reset"). Re-seed the IK from the *measured* joint positions
+                # so the next solve starts from the physical configuration:
+                # while the deadman is released the commanded-seed chain keeps
+                # solving against moving hand targets (a "phantom"
+                # configuration the robot never executes), and without this
+                # re-seed the post-reset IK would drag the elbow back from
+                # wherever the phantom chain ended up. At the reset moment the
+                # robot is settled (the deadman was released), so measured ==
+                # commanded and the sim/real tracking argument for seeding from
+                # the commanded positions does not apply.
+                measured_joints = self._controller.get_arm_position()
+                if measured_joints is not None:
+                    with self._joint_angles_lock:
+                        self._latest_joint_angles = np.asarray(measured_joints, dtype=float)
+                    logger.debug(
+                        f"[ROBOT] Reset: re-seeded IK from measured joints: {measured_joints}"
+                    )
+                else:
+                    logger.warning(
+                        "Reset: could not read measured joint positions; keeping previous IK seed"
+                    )
                 self.send_robot_pose()
 
             teleop_state = self.get_teleop_state()

@@ -40,6 +40,10 @@ class XArmOperator(Operator):
     and provide the appropriate transformation matrices.
     """
 
+    # Max time (s) to wait in _reset_teleop for a robot pose fresher than the
+    # reset request before falling back to the last cached pose.
+    RESET_POSE_TIMEOUT_S = 2.0
+
     def __init__(
         self,
         operator_name: str,
@@ -620,25 +624,46 @@ class XArmOperator(Operator):
         logger.info(f"****** {self.operator_name}: RESETTING TELEOP ******")
         # Request robot's current pose using a typed contract
         # TODO: Remove the literal in the topic arg use a constant.
+        reset_request_time = time.time()
         self._publisher_manager.publish(
             host=self._publisher_host,
             port=self._publisher_port,
             topic="reset",
-            data=SessionCommand(timestamp_s=time.time(), command="reset"),
+            data=SessionCommand(timestamp_s=reset_request_time, command="reset"),
         )
         robot_frame_homo = self.endeff_homo_subscriber.recv_keypoints()
 
         logger.info(f"****** {self.operator_name}: RESETTING TELEOP waiting for robot******")
-        # Keep trying until we get a response
-        while robot_frame_homo is None:
-            self._publisher_manager.publish(
-                host=self._publisher_host,
-                port=self._publisher_port,
-                topic="reset",
-                data=SessionCommand(timestamp_s=time.time(), command="reset"),
-            )
-            robot_frame_homo = self.endeff_homo_subscriber.recv_keypoints()
+        # Wait for a pose published *after* the reset request. The subscriber
+        # cache is never cleared, so a plain non-None read would silently
+        # return the pose captured at the *previous* reset and the baseline
+        # would be off by however far the robot has moved since then. The
+        # robot stamps the CartesianState with time.time() when publishing,
+        # so a fresh response always satisfies timestamp_s >= reset_request_time.
+        deadline = reset_request_time + self.RESET_POSE_TIMEOUT_S
+        next_republish = reset_request_time
+        while (
+            robot_frame_homo is None
+            or robot_frame_homo.timestamp_s < reset_request_time
+        ):
+            if robot_frame_homo is not None and time.time() >= deadline:
+                logger.warning(
+                    f"({self.operator_name}): no robot pose fresher than the reset "
+                    f"request within {self.RESET_POSE_TIMEOUT_S:.1f} s; falling back "
+                    "to the last cached pose."
+                )
+                break
+            # Re-request periodically (the robot consumes one reset per cycle).
+            if time.time() >= next_republish:
+                self._publisher_manager.publish(
+                    host=self._publisher_host,
+                    port=self._publisher_port,
+                    topic="reset",
+                    data=SessionCommand(timestamp_s=time.time(), command="reset"),
+                )
+                next_republish = time.time() + 0.1
             time.sleep(0.01)
+            robot_frame_homo = self.endeff_homo_subscriber.recv_keypoints()
 
         logger.info(f"****** {self.operator_name}: RESETTING TELEOP --- robot_frame_homo ******")
         try:
@@ -802,6 +827,7 @@ class XArmOperator(Operator):
         # moving rather than at system startup.
         with self._pedal_lock:
             waiting = self._waiting_for_first_pedal
+            pedal_held = self._pedal_was_pressed
         if waiting:
             return
 
@@ -819,8 +845,15 @@ class XArmOperator(Operator):
         # Update state *after* checking for transition
         self.arm_teleop_state = new_arm_teleop_state
 
-        # Decide whether we should publish commands this cycle
-        publish_commands = self.arm_teleop_state == robots.ARM_TELEOP_CONT
+        # Decide whether we should publish commands this cycle. The deadman
+        # gates the whole command pipeline, not just the final hardware publish
+        # in OpenArmForwardController: while it is released, the robot-side IK
+        # would otherwise keep solving against the moving hand targets, so its
+        # seed (the last commanded joints) drifts into a "phantom"
+        # configuration the physical robot never executes. The next deadman
+        # press would then start the IK from that phantom chain and land the
+        # elbow in an arbitrary configuration.
+        publish_commands = self.arm_teleop_state == robots.ARM_TELEOP_CONT and pedal_held
 
         logger.debug(
             f"[{self.operator_name}] state={self.arm_teleop_state} "
